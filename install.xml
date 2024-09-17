@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<extension>
+    <name>PLUGIN_STAROE</name>
+    <module>Plugins::Staroe::Plugin</module>
+    <version>0.0.1-dev</version>
+    <description>PLUGIN_STAROE_DESC</description>
+    <defaultState>enabled</defaultState>
+    <targetApplication>
+        <id>SlimServer</id>
+        <minVersion>7.9</minVersion>
+        <maxVersion>*</maxVersion>
+    </targetApplication>
+    <optionsURL>plugins/Staroe/settings/basic.html</optionsURL>
+    <creator>Alexander Charnysh</creator>
+    <homepageURL></homepageURL>
+</extension>

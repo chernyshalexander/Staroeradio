@@ -1,0 +1,43 @@
+{"channels": [
+	{
+		"id": "oldradio",
+		"title": "Old radio",
+		"description": "Simple old radio",
+		"genre": "oldies",
+		"image": "https://p.turbosquid.com/ts-thumb/aQ/CuvVte/w1/oldradio_0000/jpg/1636008429/1920x1080/fit_q99/25b5149277204e2b8293eb57aa4f6c0d73a945ec/oldradio_0000.jpg",
+		"largeimage": "https://p.turbosquid.com/ts-thumb/aQ/CuvVte/w1/oldradio_0000/jpg/1636008429/1920x1080/fit_q99/25b5149277204e2b8293eb57aa4f6c0d73a945ec/oldradio_0000.jpg",
+		"xlimage": "https://p.turbosquid.com/ts-thumb/aQ/CuvVte/w1/oldradio_0000/jpg/1636008429/1920x1080/fit_q99/25b5149277204e2b8293eb57aa4f6c0d73a945ec/oldradio_0000.jpg",
+		"twitter": "",
+		"updated": "",
+		"playlists": [
+			{ "url": "http://www.staroeradio.ru/ices128.m3u", "format": "mp3",  "quality": "highest" },
+			{ "url": "http://www.staroeradio.ru/ices64.m3u", "format": "mp3",  "quality": "high" },
+			{ "url": "http://www.staroeradio.ru/ices32.m3u", "format": "mp3",  "quality": "low" }
+		],
+		"preroll": [ 
+
+		],
+		"listeners": "0",
+		"lastPlaying": ""
+	},
+	{
+		"id": "childradio",
+		"title": "Old radio for children",
+		"description": "Old radio for children",
+		"genre": "oldies",
+		"image": "https://p.turbosquid.com/ts-thumb/aQ/CuvVte/w1/oldradio_0000/jpg/1636008429/1920x1080/fit_q99/25b5149277204e2b8293eb57aa4f6c0d73a945ec/oldradio_0000.jpg",
+		"largeimage": "https://p.turbosquid.com/ts-thumb/aQ/CuvVte/w1/oldradio_0000/jpg/1636008429/1920x1080/fit_q99/25b5149277204e2b8293eb57aa4f6c0d73a945ec/oldradio_0000.jpg",
+		"xlimage": "https://p.turbosquid.com/ts-thumb/aQ/CuvVte/w1/oldradio_0000/jpg/1636008429/1920x1080/fit_q99/25b5149277204e2b8293eb57aa4f6c0d73a945ec/oldradio_0000.jpg",
+		"twitter": "",
+		"updated": "",
+		"playlists": [
+			{ "url": "http://www.staroeradio.ru/detskoe128.m3u", "format": "mp3",  "quality": "highest" },			
+			{ "url": "http://www.staroeradio.ru/detskoe64.m3u", "format": "mp3",  "quality": "high" },
+			{ "url": "http://www.staroeradio.ru/detskoe32.m3u", "format": "mp3",  "quality": "low" }
+		],
+		"preroll": [ 
+			
+		],
+		"listeners": "0",
+		"lastPlaying": ""
+	}]}
