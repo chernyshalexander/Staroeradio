@@ -9,7 +9,7 @@ package Plugins::Staroe::Plugin;
 use strict;
 use utf8;
 use vars qw(@ISA);
-use base qw(Slim::Plugin::OPMLBased);
+
 use feature qw(fc);
 
 use JSON::XS::VersionOneAndTwo;
@@ -17,7 +17,7 @@ use JSON::XS::VersionOneAndTwo;
 use Slim::Utils::Strings qw(string);
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
-
+use base qw(Slim::Plugin::OPMLBased);
 use constant HTTP_TIMEOUT => 15;
 use constant HTTP_CACHE => 1;
 use constant HTTP_EXPIRES => '1h';
