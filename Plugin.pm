@@ -77,10 +77,10 @@ sub _transliterate {
 
     $text = lc $text;
 
-    # Сначала обрабатываем " -> ъ
+    # processing " -> ъ
     $text =~ s/"/ъ/g;
 
-    # Обработка от самых длинных к самым коротким
+    # processing goes from the longest sequences to the shortest
     foreach my $key (sort { length($b) <=> length($a) } keys %translit_map) {
         my $value = $translit_map{$key};
         $text =~ s/\Q$key\E/$value/g;
@@ -115,22 +115,9 @@ sub initPlugin {
         require Plugins::Staroe::Settings;
         Plugins::Staroe::Settings->new;
     }
-    #     # Регистрация протокола для воспроизведения
-    # my $URL_REGEX = qr{^https?://(?:www\.)?staroeradio\.ru/audio/\d+}i;
-    # Slim::Player::ProtocolHandlers->registerURLHandler($URL_REGEX, __PACKAGE__);
+
 }
-# Поддержка воспроизведения аудио
-# sub protocolHandler {
-#     my ($class, $song) = @_;
 
-#     my $stream_url = $song->track->url;
-
-#     if ($stream_url) {
-#         $song->streamUrl($stream_url);
-#     }
-
-#     return $class->SUPER::new({ song => $song });
-# }
 sub isRemote { 1 }    
 # Called when the plugin is stopped
 sub shutdownPlugin {
@@ -164,11 +151,11 @@ sub _feedHandler {
             close $fh;
         }
 
-        # Парсинг JSON-содержимого
+        # paring JSON content
         my $json = eval { from_json($json_content) };
         _parseChannels($json->{'channels'}, $menu);
         
-        # Добавляем пункт меню "Search"
+        # add menu item "Search"
         push @$menu, {
             #name =>  cstring($client, 'PLUGIN_STAROE_SEARCH'),
             #type => 'search',
@@ -194,8 +181,6 @@ sub _parseChannels {
     for my $channel (@$channels) {
         push @$menu, _parseChannel($channel);
     }
-
-    #push @$menu, _AddSearch();
 }
 
 
@@ -206,8 +191,7 @@ sub _parseChannel {
         name => _getFirstLineText($channel, 0),
         description => $channel->{'description'},
         
-        # current_track => $channel->{'lastPlaying'},
-        # genre => (join ', ', map ucfirst, split '\|', $channel->{'genre'}), # split genre and capitalise the first letter, so 'ambient|electronic' becomes 'Ambient, Electronic'
+        
         line1 => _getFirstLineText($channel, 1),
         line2 => _getSecondLineText($channel),
         type =>'audio',
@@ -290,7 +274,7 @@ sub _searchHandler {
     #$log->debug(Dumper($args));
     #$log->debug(Dumper($params));
 
-    # Применяем транслитерацию, если включена
+    # we apply transliteration if enabled
     my $translit =  $prefs->get('translitSearch');
     #$log->debug(Dumper($translit));
 
@@ -351,7 +335,7 @@ sub _parseSearchResults {
         #next unless $href =~ m{^/(?:audio|radio)/(\d+)}i;
         next unless $href =~ m{/(?:audio|radio)/(\d+)}i;
         #$log->debug($href);
-        # Определяем домен или хост
+        # Определяем  хост
         my ($host, $base_url);
 
         if ($href =~ /svidetel\.su/) {
@@ -435,10 +419,11 @@ sub _parseSearchResults {
     return @results;
 }
 
-# use Slim::Networking::SimpleAsyncHTTP;
 
 
 
+# for future releases
+#
 # sub _checkStreamUrl {
 #     my ($url128, $url32) = @_;
 
