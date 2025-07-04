@@ -37,7 +37,7 @@ This plugin provides access to vintage Russian radio broadcasts from [staroeradi
 📦 The plugin allows:
 - Streaming archive radio broadcasts via LMS
 - Searching by title or author
-- Transliteration support: search using Latin letters (e.g., `djaz` → `джаз`)
+- Transliteration support: search using Latin letters 
 - Automatically fetch correct MP3 URLs from the server `server.audiopedia.su`
 
 
