@@ -9,43 +9,97 @@ package Plugins::Staroe::Plugin;
 use strict;
 use utf8;
 use vars qw(@ISA);
-
+use File::Basename;
+use Cwd 'abs_path';
+use File::Spec;
 use feature qw(fc);
-
+use Data::Dumper;
 use JSON::XS::VersionOneAndTwo;
-
+use Slim::Networking::SimpleAsyncHTTP;
+# use XML::LibXML;
 use Slim::Utils::Strings qw(string);
+use Slim::Utils::Strings qw(string cstring);
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
+use Slim::Player::Song;
 use base qw(Slim::Plugin::OPMLBased);
+use URI::Escape;
+use URI::Escape qw(uri_escape_utf8);
+use Encode qw(encode decode);
+use Encode::Guess;
 use constant HTTP_TIMEOUT => 15;
 use constant HTTP_CACHE => 1;
 use constant HTTP_EXPIRES => '1h';
-
-
+use constant MIN_SEARCH_LENGTH => 3;
+our $pluginDir;
 
 my $log;
+
+
 
 # Get the data related to this plugin and preset certain variables with 
 # default values in case they are not set
 my $prefs = preferences('plugin.staroe');
-$prefs->init({ menuLocation => 'radio', orderBy => 'popular', groupByGenre => 0, streamingQuality => 'highest', descriptionInTitle => 0, secondLineText => 'description' });
+
 
 # This is the entry point in the script
 BEGIN {
+    $pluginDir = $INC{"Plugins/Staroe/Plugin.pm"};
+    $pluginDir =~ s/Plugin.pm$//; 
+}
     # Initialize the logging
     $log = Slim::Utils::Log->addLogCategory({
         'category'     => 'plugin.staroe',
-        'defaultLevel' => 'ERROR',
-        'description'  => 'STAROE'#string('PLUGIN_STAROE'),
+        'defaultLevel' => 'DEBUG',
+        'description'  => string('PLUGIN_STAROE'),
     });
+
+
+#
+#
+
+sub _transliterate {
+    my ($text) = @_;
+
+    my %translit_map = ('"' => 'ъ',
+        'zh' => 'ж', 'kh' => 'х', 'ts' => 'ц',
+        'ch' => 'ч', 'sh' => 'ш', 'shch' => 'щ',
+        'ya' => 'я', 'yu' => 'ю', 'yo' => 'ё',
+        'eh' => 'э', 'iy'=> 'ий', '\'' => 'ь',
+        'a' => 'а', 'b' => 'б', 'v' => 'в',
+        'g' => 'г', 'd' => 'д', 'e' => 'е',
+        'z' => 'з', 'i' => 'и', 
+        'k' => 'к', 'l' => 'л', 'm' => 'м',
+        'n' => 'н', 'o' => 'о', 'p' => 'п',
+        'r' => 'р', 's' => 'с', 't' => 'т',
+        'u' => 'у', 'f' => 'ф', 'y' => 'ы'
+    );
+
+    $text = lc $text;
+
+    # Сначала обрабатываем " -> ъ
+    $text =~ s/"/ъ/g;
+
+    # Обработка от самых длинных к самым коротким
+    foreach my $key (sort { length($b) <=> length($a) } keys %translit_map) {
+        my $value = $translit_map{$key};
+        $text =~ s/\Q$key\E/$value/g;
+    }
+
+    return $text;
 }
+
 
 # This is called when squeezebox server loads the plugin.
 # It is used to initialize variables and the like.
 sub initPlugin {
     my $class = shift;
-
+    $prefs->init({ menuLocation => 'radio',  
+                    streamingQuality => 'highest', 
+                    descriptionInTitle => 0, 
+                    secondLineText => 'description',
+                    translitSearch=>'disable', });
+    Slim::Utils::Strings::loadFile(File::Spec->catfile($pluginDir, 'strings.txt'));
     # Initialize the plugin with the given values. The 'feed' is the first
     # method called. The available menu entries will be shown in the new 
     # menu entry 'staroe'.
@@ -53,7 +107,7 @@ sub initPlugin {
         feed   => \&_feedHandler,
         tag    => 'staroe',
         menu   => 'radios',
-        is_app =>  1 ,
+        is_app => $class->can('nonSNApps') && ($prefs->get('menuLocation') eq 'apps') ? 1 : undef, 
         weight => 10,
     );
 
@@ -61,15 +115,30 @@ sub initPlugin {
         require Plugins::Staroe::Settings;
         Plugins::Staroe::Settings->new;
     }
+    #     # Регистрация протокола для воспроизведения
+    # my $URL_REGEX = qr{^https?://(?:www\.)?staroeradio\.ru/audio/\d+}i;
+    # Slim::Player::ProtocolHandlers->registerURLHandler($URL_REGEX, __PACKAGE__);
 }
+# Поддержка воспроизведения аудио
+# sub protocolHandler {
+#     my ($class, $song) = @_;
 
+#     my $stream_url = $song->track->url;
+
+#     if ($stream_url) {
+#         $song->streamUrl($stream_url);
+#     }
+
+#     return $class->SUPER::new({ song => $song });
+# }
+sub isRemote { 1 }    
 # Called when the plugin is stopped
 sub shutdownPlugin {
     my $class = shift;
 }
 
 # Returns the name to display on the squeezebox
-sub getDisplayName { 'PLUGIN_STAROE' }
+sub getDisplayName {'PLUGIN_STAROE' }
 
 sub playerMenu { undef }
 
@@ -85,23 +154,32 @@ sub _feedHandler {
 
         # read local file channels.json
         my $json_content;
-        {
-            local $/ = undef;
-            open my $fh, '<', 'plugins/Staroe/channels.json' or die "Could not open file 'channels.json' $!";
+        { 
+
+            local $/ = undef;       #EOL symbol = undef,      
+
+            my $file = File::Spec->catfile($pluginDir, 'channels.json');
+            open my $fh, '<', $file or die "Can't open '$file': $!";
             $json_content = <$fh>;
             close $fh;
         }
 
         # Парсинг JSON-содержимого
         my $json = eval { from_json($json_content) };
-
-        #if ($prefs->get('groupByGenre')) {
-        #    _parseChannelsWithGroupByGenre($json->{'channels'}, $menu);
-        #}
-        #else {
-            _parseChannels(_sortChannels($json->{'channels'}), $menu);
-        #}
-
+        _parseChannels($json->{'channels'}, $menu);
+        
+        # Добавляем пункт меню "Search"
+        push @$menu, {
+            #name =>  cstring($client, 'PLUGIN_STAROE_SEARCH'),
+            #type => 'search',
+            id => '1',
+            name=>'Search',
+            type =>'search',
+        
+            url => \&_searchHandler,
+            image => 'plugins/Staroe/html/images/foundbroadcast2_svg.png',
+            
+        };
         $callback->({
             items  => $menu
         });
@@ -116,42 +194,10 @@ sub _parseChannels {
     for my $channel (@$channels) {
         push @$menu, _parseChannel($channel);
     }
-}
-=begin comment
-sub _parseChannelsWithGroupByGenre {
-    my ($channels, $menu) = @_;
 
-    my %menu_items;
-
-    # Create submenus for each genre.
-    # First check if the genre menu doesn't exist yet. If if doesn't,
-    # create the menu item and let `items` reference to a (yet) empty
-    # array. Then for each genre, parse the channel and add it to the
-    # array. As this works by reference it can all be done in one loop.
-
-    for my $channel (@$channels) {
-        for my $genre (split('\|', $channel->{'genre'})) {
-            if (!exists($menu_items{$genre})) {
-                $menu_items{ $genre } = ();
-                push @$menu, {
-                    name => ucfirst($genre),
-                    items => \@{$menu_items{$genre}}
-                };
-            }
-            push @{ $menu_items{ $genre } }, _parseChannel($channel);
-        }
-    }
-
-    # Sort items within the submenus
-    foreach ( @$menu ) {
-        $_->{'items'} = _sortChannels($_->{'items'}); 
-    }
-
-    # Sort the genres themselves alphabetically
-    @$menu = sort { $a->{name} cmp $b->{name} } @$menu;
+    #push @$menu, _AddSearch();
 }
 
-=cut
 
 sub _parseChannel {
     my ($channel) = @_;
@@ -159,12 +205,12 @@ sub _parseChannel {
     return {
         name => _getFirstLineText($channel, 0),
         description => $channel->{'description'},
-        listeners => $channel->{'listeners'},
-        current_track => $channel->{'lastPlaying'},
-        genre => (join ', ', map ucfirst, split '\|', $channel->{'genre'}), # split genre and capitalise the first letter, so 'ambient|electronic' becomes 'Ambient, Electronic'
+        
+        # current_track => $channel->{'lastPlaying'},
+        # genre => (join ', ', map ucfirst, split '\|', $channel->{'genre'}), # split genre and capitalise the first letter, so 'ambient|electronic' becomes 'Ambient, Electronic'
         line1 => _getFirstLineText($channel, 1),
         line2 => _getSecondLineText($channel),
-        type => 'audio',
+        type =>'audio',
         url => _getStream($channel),
         image => $channel->{'largeimage'}
     };
@@ -185,25 +231,25 @@ sub _getStream {
     return $playlists->[0]->{'url'};
 }
 
-sub _sortChannels {
-    my ($channels) = shift;
+# sub _sortChannels {
+#     my ($channels) = shift;
 
-    my @sorted_channels;
-    my $orderBy = $prefs->get('orderBy');
-    if ($orderBy eq 'popular') {
-        # sort by number of listeners descending
-        @sorted_channels = sort { $b->{listeners} <=> $a->{listeners} } @$channels;
-    }
-    elsif ($orderBy eq 'title') {
-        # sort alphabetically but case-insensitive
-        @sorted_channels = sort { fc($a->{title}) cmp fc($b->{title}) } @$channels;
-    }
-    else {
-        # do not sort, use order as provided in channel feed
-        @sorted_channels = @$channels;
-    }
-    return \@sorted_channels;
-}
+#     my @sorted_channels;
+#     my $orderBy = $prefs->get('orderBy');
+#     if ($orderBy eq 'popular') {
+#         # sort by number of listeners descending
+#         @sorted_channels = sort { $b->{listeners} <=> $a->{listeners} } @$channels;
+#     }
+#     elsif ($orderBy eq 'title') {
+#         # sort alphabetically but case-insensitive
+#         @sorted_channels = sort { fc($a->{title}) cmp fc($b->{title}) } @$channels;
+#     }
+#     else {
+#         # do not sort, use order as provided in channel feed
+#         @sorted_channels = @$channels;
+#     }
+#     return \@sorted_channels;
+# }
 
 sub _getFirstLineText {
     my ($channel, $isFirstLine) = @_;
@@ -236,6 +282,199 @@ sub _getSecondLineText {
         return $channel->{'description'};
     }
 }
+# Обработчик поиска
+sub _searchHandler {
+    my (  $client, $cb, $args) = @_;
 
+    my $query = $args->{search};
+    #$log->debug(Dumper($args));
+    #$log->debug(Dumper($params));
+
+    # Применяем транслитерацию, если включена
+    my $translit =  $prefs->get('translitSearch');
+    #$log->debug(Dumper($translit));
+
+    if ($translit eq 'enable') {
+        $query = _transliterate($query);
+     }
+    if (length($query) < MIN_SEARCH_LENGTH) {
+        return $cb->([]);
+    }
+    # $log->debug($query_trans);
+    my $timestamp = time();
+    my $url = "http://staroeradio.ru/search?q=" . uri_escape_utf8($query) . "&_=$timestamp";
+
+    #$log->debug("Search started");
+    #$log->debug($query);
+    #$log->debug($url );
+    Slim::Networking::SimpleAsyncHTTP->new(
+        sub {
+            my $http = shift;
+            my $html = $http->content;
+            #$log->debug($html);
+            my @results = _parseSearchResults($html);
+
+            $cb->(\@results);
+        },
+        sub {
+            $log->error("Search failed");
+            $cb->([]);
+        }
+    )->get($url);
+}
+
+use URI::Escape;
+use strict;
+use warnings;
+
+use HTML::TokeParser;
+use Encode qw(decode);
+
+sub _parseSearchResults {
+    my ($html) = @_;
+
+    my @results;
+
+    # Создаем парсер из строки HTML
+    my $p = HTML::TokeParser->new(\$html);
+    unless ($p) {
+        $log->error("Failed to create TokeParser");
+        return ();
+    }
+
+    # Парсим HTML как поток токенов
+    while (my $token = $p->get_tag('a')) {
+        my $href = $token->[1]{href};
+        next unless defined $href;
+        # $log->debug($href);
+        # Проверяем, есть  ли в ссылке  /audio/
+        #next unless $href =~ m{^/(?:audio|radio)/(\d+)}i;
+        next unless $href =~ m{/(?:audio|radio)/(\d+)}i;
+        #$log->debug($href);
+        # Определяем домен или хост
+        my ($host, $base_url);
+
+        if ($href =~ /svidetel\.su/) {
+            $host = 'svidetel.su';
+            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=svidetel&id=";
+        }
+        elsif ($href =~ /reportage\.su/) {
+            $host = 'reportage.su';
+            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=reportage&id=";
+        }
+        elsif ($href =~ /theatrologia\.su/) {
+            $host = 'theatrologia.su';
+            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=theatrologia&id=";
+        }
+        elsif ($href =~ /lektorium\.su/) {
+            $host = 'lektorium.su';
+            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=lektorium&id=";
+        }
+        elsif ($href =~ /staroeradio\.ru/i || $href =~ m{^/audio/}) {
+            $host = 'staroeradio.ru';
+            $base_url = "http://server.audiopedia.su:8888/get_mp3_128.php?id=";
+        }
+        else {
+            $log->warn("Unknown host for href: $href");
+            next;
+        }
+        # $log->debug($href);
+        # Получаем ID из href
+        my $track_id;
+        if ($href =~ m{/audio/(\d+)}i) {
+            $track_id = $1;
+        } elsif ($href =~ m{/radio/(\d+)}i) {
+            $track_id = $1;
+        } else {
+            $log->warn("Could not extract ID from href: $href");
+            next;
+        }
+
+        # Теперь ищем div.mp3name внутри <a>
+        my $title;
+        while (my $inner_token = $p->get_token) {
+            last if $inner_token->[0] eq 'E' && $inner_token->[1] eq 'a'; # закрываем a
+
+            if ($inner_token->[0] eq 'S' && $inner_token->[1] eq 'div') {
+                my $class = $inner_token->[2]{class} || '';
+                next unless $class eq 'mp3name';
+
+                # Теперь читаем текст до закрытия </div>
+                $title = '';
+                while (my $text_token = $p->get_token) {
+                    last if $text_token->[0] eq 'E' && $text_token->[1] eq 'div';
+                    $title .= $text_token->[1] if $text_token->[0] eq 'T';
+                }
+            }
+        }
+
+        next unless $title;
+
+        # Чистим название
+        $title =~ s/^\s*<b>.*?<\/b>\s*//;
+        $title =~ s/\s*$$.*?$$//g;
+        $title =~ s/^\s+|\s+$//g;
+
+        # Декодируем UTF-8 (если нужно)
+        $title = decode('UTF-8', $title);
+
+        # Формируем stream URL
+        my $stream_url = $base_url . $track_id;
+
+        # Добавляем результат
+        push @results, {
+            name => $title,
+            play => $stream_url,
+            url  => $stream_url,
+            type => 'audio',
+            description => "Аудиозапись с $host",
+            image => "plugins/Staroe/html/images/foundbroadcast1_svg.png"
+        };
+    }
+
+    return @results;
+}
+
+# use Slim::Networking::SimpleAsyncHTTP;
+
+
+
+# sub _checkStreamUrl {
+#     my ($url128, $url32) = @_;
+
+#     my $final_url;
+
+#     # Создаем callback для асинхронной проверки URL
+#     my $cb = sub {
+#         my $http = shift;
+
+#         my $response_code = $http->response->code;
+
+#         if ($response_code == 200) {
+#             $final_url = $url128;
+#         }
+#         elsif ($response_code == 404 && $url32) {
+#             my $fallback_cb = sub {
+#                 my $http2 = shift;
+#                 if ($http2->response->code == 200) {
+#                     $final_url = $url32;
+#                 } else {
+#                     $log->warn("Fallback URL failed too: $url32");
+#                 }
+#             };
+
+#             Slim::Networking::SimpleAsyncHTTP->new($fallback_cb, $fallback_cb)->head($url32);
+#         }
+#         else {
+#             $log->warn("Stream not found at $url128 (code: $response_code)");
+#         }
+#     };
+
+#     # Выполняем HEAD-запрос на 128kbps URL
+#     Slim::Networking::SimpleAsyncHTTP->new($cb, $cb)->head($url128);
+
+#     # Так как всё асинхронно, результат будет только после завершения callback
+#     return $final_url || $url128; # может быть undef, если URL недоступен
+# }
 # Always end with a 1 to make Perl happy
 1;

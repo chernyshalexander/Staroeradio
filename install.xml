@@ -2,7 +2,7 @@
 <extension>
     <name>PLUGIN_STAROE</name>
     <module>Plugins::Staroe::Plugin</module>
-    <version>0.0.1-dev</version>
+    <version>0.5.1</version>
     <description>PLUGIN_STAROE_DESC</description>
     <defaultState>enabled</defaultState>
     <targetApplication>
@@ -11,6 +11,7 @@
         <maxVersion>*</maxVersion>
     </targetApplication>
     <optionsURL>plugins/Staroe/settings/basic.html</optionsURL>
+    <icon>plugins/Staroe/Staroe_svg.png</icon>
     <creator>Alexander Charnysh</creator>
     <homepageURL></homepageURL>
 </extension>

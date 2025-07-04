@@ -4,6 +4,12 @@ PLUGIN_STAROE
 PLUGIN_STAROE_DESC
 	EN	Play radio channels from Staroe Radio
 
+PLUGIN_STAROE_MENU_TRANSLIT_ENABLE
+	EN	Enable
+
+PLUGIN_STAROE_MENU_TRANSLIT_DISABLE
+	EN	Disable
+
 PLUGIN_STAROE_MENU_LOCATION
 	EN	Menu location
 
@@ -23,7 +29,7 @@ PLUGIN_STAROE_ORDER_BY_DESC
 	EN	Choose how to order the channels. Sorting by popularity sorts by the number of current listeners. Sorting by title sorts the channels in alphabetical order. No sorting orders the channels as defined by STAROE.
 
 PLUGIN_STAROE_ORDER_BY_POLULARITY
-	EN	Popularity
+	EN	Popularity                                                                                       http://www.staroeradio.ru/
 
 PLUGIN_STAROE_ORDER_BY_TITLE
 	EN	Title
@@ -80,7 +86,13 @@ PLUGIN_STAROE_SUPPORT
 	EN	Donate
 
 PLUGIN_STAROE_SUPPORT_DESC
-	EN	Donate to STAROE
+	EN	Donate to STAROE RADIO
 
 PLUGIN_STAROE_SUPPORT_TEXT
-	EN	STAROE is entirely listener-supported and independent radio. Consider making a <a href="https://STAROERADIO.ru/support/" target="_blank">donation</a> if you enjoy STAROE.
+	EN	STAROE is entirely listener-supported and independent radio. Consider making a <a href="http://www.staroeradio.ru/" target="_blank">donation</a> if you enjoy STAROE RADIO.
+
+PLUGIN_STAROE_TRANSLIT
+	EN	Transliterated input for cyrillic 
+
+PLUGIN_STAROE_TRANSLIT_DESC
+	EN	If enabled, the search will use transliteration (e.g., 'saltykov' → 'салтыков').This setting allows converting between Latin and Cyrillic characters for broader search matching.
