@@ -19,7 +19,14 @@
 - Поддержка воспроизведения аудио через LMS
 - Настройки: можно включить/выключить транслитерацию, выбрать качество и другие параметры
 
+## Установка
+
+Чтобы добавить плагин в ваш Lyrion Music Server, перейдите на страницу настроек, нажмите "Manage Plugins" ("Управление плагинами") 
+и добавьте новый репозиторий, указав URL XML-файла:
+https://chernyshalexander.github.io/StaroeRadio/public.xml
+
 ## Лицензия
+
 
 MIT License — см. файл `LICENSE`.
 
@@ -48,6 +55,15 @@ This plugin provides access to vintage Russian radio broadcasts from [staroeradi
 - Transliteration support: e.g., `djaz` → `джаз`, `pushkin` → `пушкин`
 - Audio playback integration with LMS
 - Plugin settings for transliteration, quality, etc.
+
+
+## Installation
+ 
+To add the plugin to your Lyrion Music Server, go to the Settings page, click on "Manage Plugins," 
+and add a new repository using the following XML file URL:
+https://chernyshalexander.github.io/StaroeRadio/public.xml
+
+
 
 ## License
 
