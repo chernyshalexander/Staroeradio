@@ -16,7 +16,6 @@ use feature qw(fc);
 use Data::Dumper;
 use JSON::XS::VersionOneAndTwo;
 use Slim::Networking::SimpleAsyncHTTP;
-# use XML::LibXML;
 use Slim::Utils::Strings qw(string);
 use Slim::Utils::Strings qw(string cstring);
 use Slim::Utils::Prefs;
@@ -27,13 +26,14 @@ use URI::Escape;
 use URI::Escape qw(uri_escape_utf8);
 use Encode qw(encode decode);
 use Encode::Guess;
-use constant HTTP_TIMEOUT => 15;
-use constant HTTP_CACHE => 1;
-use constant HTTP_EXPIRES => '1h';
+# use constant HTTP_TIMEOUT => 15;
+# use constant HTTP_CACHE => 1;
+# use constant HTTP_EXPIRES => '1h';
 use constant MIN_SEARCH_LENGTH => 3;
 our $pluginDir;
-
-my $log;
+use warnings;
+use HTML::TokeParser;
+#use Encode qw(decode);
 
 
 
@@ -41,6 +41,7 @@ my $log;
 # default values in case they are not set
 my $prefs = preferences('plugin.staroe');
 
+my $log;
 
 # This is the entry point in the script
 BEGIN {
@@ -57,7 +58,6 @@ BEGIN {
 
 #
 #
-
 sub _transliterate {
     my ($text) = @_;
 
@@ -215,56 +215,38 @@ sub _getStream {
     return $playlists->[0]->{'url'};
 }
 
-# sub _sortChannels {
-#     my ($channels) = shift;
-
-#     my @sorted_channels;
-#     my $orderBy = $prefs->get('orderBy');
-#     if ($orderBy eq 'popular') {
-#         # sort by number of listeners descending
-#         @sorted_channels = sort { $b->{listeners} <=> $a->{listeners} } @$channels;
-#     }
-#     elsif ($orderBy eq 'title') {
-#         # sort alphabetically but case-insensitive
-#         @sorted_channels = sort { fc($a->{title}) cmp fc($b->{title}) } @$channels;
-#     }
-#     else {
-#         # do not sort, use order as provided in channel feed
-#         @sorted_channels = @$channels;
-#     }
-#     return \@sorted_channels;
-# }
 
 sub _getFirstLineText {
-    my ($channel, $isFirstLine) = @_;
+    my ($channel) = shift;
+    # my ($channel, $isFirstLine) = @_;
 
-    # Display the channel description in the title. If a skin/app supports line1/line2
-    # the description is added to the title if the description is not already shown on
-    # line2.
-    if ($prefs->get('descriptionInTitle') && (
-        ($prefs->get('secondLineText') eq 'description' && !$isFirstLine) ||
-        ($prefs->get('secondLineText') ne 'description' && $isFirstLine)
-        )) {
-        return "$channel->{'title'}: $channel->{'description'}";
-    }
-    else {
+    # # Display the channel description in the title. If a skin/app supports line1/line2
+    # # the description is added to the title if the description is not already shown on
+    # # line2.
+    # if ($prefs->get('descriptionInTitle') && (
+    #     ($prefs->get('secondLineText') eq 'description' && !$isFirstLine) ||
+    #     ($prefs->get('secondLineText') ne 'description' && $isFirstLine)
+    #     )) {
+    #     return "$channel->{'title'}: $channel->{'description'}";
+    # }
+    # else {
         return $channel->{'title'};
-    }
+    # }
 }
 
 sub _getSecondLineText {
     my ($channel) = shift;
 
-    my $secondLineText = $prefs->get('secondLineText');
-    if ($secondLineText eq 'lastPlayed') {
-        return $channel->{'lastPlaying'};
-    }
-    elsif ($secondLineText eq 'listeners') {
-        return sprintf(string('PLUGIN_STAROE    _SECOND_LINE_TEXT_LISTENERS_SPRINTF', $channel->{'listeners'}));
-    }
-    else {
+    # my $secondLineText = $prefs->get('secondLineText');
+    # if ($secondLineText eq 'lastPlayed') {
+    #     return $channel->{'lastPlaying'};
+    # }
+    # elsif ($secondLineText eq 'listeners') {
+    #     return sprintf(string('PLUGIN_STAROE    _SECOND_LINE_TEXT_LISTENERS_SPRINTF', $channel->{'listeners'}));
+    # }
+    # else {
         return $channel->{'description'};
-    }
+    # }
 }
 # Обработчик поиска
 sub _searchHandler {
@@ -307,12 +289,7 @@ sub _searchHandler {
     )->get($url);
 }
 
-use URI::Escape;
-use strict;
-use warnings;
 
-use HTML::TokeParser;
-use Encode qw(decode);
 
 sub _parseSearchResults {
     my ($html) = @_;
