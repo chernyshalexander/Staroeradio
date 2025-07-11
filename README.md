@@ -1,4 +1,4 @@
-#### StaroeRadio — плагин для Lyrion Music Server  (LMS, ранее  - Logitech Media Server) 🎙️🔌
+#### StaroeRadio — плагин для Lyrion Music Server  (LMS, ранее  - Logitech Media Server)
 
 Этот плагин добавляет поддержку потокового воспроизведения аудио с сайта [staroeradio.ru](http://staroeradio.ru) и других проектов, таких как:
 - `svidetel.su`
@@ -6,7 +6,7 @@
 - `reportage.su`
 - `lektorium.su`
 
-📦 Плагин позволяет:
+Плагин позволяет:
 - Воспроизводить архивные радиопередачи через LMS (Logitech Media Server)
 - Искать передачи по названию или автору
 - Поддерживает транслитерацию: поиск по латинским буквам
@@ -19,7 +19,7 @@
 - Поддержка воспроизведения аудио через LMS
 - Настройки: можно включить/выключить транслитерацию, выбрать качество и другие параметры
 
-##### 🛠 Установка
+##### Установка
 
 Чтобы добавить плагин в ваш Lyrion Music Server, перейдите на страницу настроек, нажмите "Manage Plugins" ("Управление плагинами") 
 и добавьте новый репозиторий, указав URL XML-файла:
@@ -28,9 +28,9 @@ https://chernyshalexander.github.io/StaroeRadio/public.xml
 ##### Лицензия
 
 MIT License — см. файл `LICENSE`.
------
 
-#### StaroeRadio – A Plugin for Lyrion Music Server (LMS, Formerly Logitech Media Server)    🎙️🔌
+
+#### StaroeRadio – Plugin for Lyrion Music Server (LMS, Formerly Logitech Media Server)
 
 This plugin provides access to vintage Russian radio broadcasts from [staroeradio.ru](http://www.staroeradio.ru/).
  and related websites:
@@ -39,7 +39,7 @@ This plugin provides access to vintage Russian radio broadcasts from [staroeradi
 - `reportage.su`
 - `lektorium.su`
 
-📦 The plugin allows:
+The plugin allows:
 - Streaming archive radio broadcasts via LMS
 - Searching by title or author
 - Transliteration support: search using Latin letters 
@@ -50,9 +50,9 @@ This plugin provides access to vintage Russian radio broadcasts from [staroeradi
 - Search on `staroeradio.ru`
 - Transliteration support: e.g., `djaz` → `джаз`, `pushkin` → `пушкин`
 - Audio playback integration with LMS
-- Plugin settings for transliteration, quality, etc.
+- Plugin settings for transliteration, streaming quality, etc.
 
-##### 🛠 Installation
+##### Installation
  
 To add the plugin to your Lyrion Music Server, go to the Settings page, click on "Manage Plugins," 
 and add a new repository using the following XML file URL:
