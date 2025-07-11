@@ -5,7 +5,6 @@
 - `theatrologia.su`
 - `reportage.su`
 - `lektorium.su`
-
 Плагин позволяет:
 - Воспроизводить архивные радиопередачи через LMS (Logitech Media Server)
 - Искать передачи по названию или автору
@@ -38,7 +37,6 @@ This plugin provides access to vintage Russian radio broadcasts from [staroeradi
 - `theatrologia.su`
 - `reportage.su`
 - `lektorium.su`
-
 The plugin allows:
 - Streaming archive radio broadcasts via LMS
 - Searching by title or author
