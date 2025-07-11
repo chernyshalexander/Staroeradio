@@ -1,4 +1,4 @@
-# StaroeRadio — плагин для Logitech Media Server (LMS)  🎙️🔌
+# StaroeRadio — плагин для Lyrion Music Server  (LMS, ранее  - Logitech Media Server) 🎙️🔌
 
 Этот плагин добавляет поддержку потокового воспроизведения аудио с сайта [staroeradio.ru](http://staroeradio.ru) и других проектов, таких как:
 - `svidetel.su`
@@ -19,7 +19,7 @@
 - Поддержка воспроизведения аудио через LMS
 - Настройки: можно включить/выключить транслитерацию, выбрать качество и другие параметры
 
-## Установка
+## 🛠 Установка
 
 Чтобы добавить плагин в ваш Lyrion Music Server, перейдите на страницу настроек, нажмите "Manage Plugins" ("Управление плагинами") 
 и добавьте новый репозиторий, указав URL XML-файла:
@@ -32,7 +32,7 @@ MIT License — см. файл `LICENSE`.
 
 -----
 
-# StaroeRadio — Plugin for Logitech Media Server (LMS)    🎙️🔌
+# StaroeRadio – A Plugin for Lyrion Music Server (LMS, Formerly Logitech Media Server)    🎙️🔌
 
 This plugin provides access to vintage Russian radio broadcasts from [staroeradio.ru](http://www.staroeradio.ru/).
  and related websites:
@@ -57,7 +57,7 @@ This plugin provides access to vintage Russian radio broadcasts from [staroeradi
 - Plugin settings for transliteration, quality, etc.
 
 
-## Installation
+## 🛠 Installation
  
 To add the plugin to your Lyrion Music Server, go to the Settings page, click on "Manage Plugins," 
 and add a new repository using the following XML file URL:
