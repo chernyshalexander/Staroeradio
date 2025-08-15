@@ -23,7 +23,7 @@ sub page {
 }
 
 sub prefs {
-    return ($prefs, qw(menuLocation streamingQuality descriptionInTitle secondLineText translitSearch));
+    return ($prefs, qw(menuLocation streamingQuality descriptionInTitle secondLineText translitSearch siteSelector));
 }
 
 # Always end with a 1 to make Perl happy

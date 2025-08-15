@@ -1,64 +1,48 @@
 {"channels": [
 	{
 		"id": "oldradio",
-		"title": "Old radio",
-		"description": "Simple old radio",
+		"title": "Vintage Radio",
+		"description": "A nostalgic journey into the golden age of radio",
 		"genre": "oldies",
 		"image": "plugins/Staroe/html/images/oldradio_svg.png",
-		"largeimage": "plugins/Staroe/html/images/oldradio_svg.png",
-		"xlimage": "plugins/Staroe/html/images/oldradio_svg.png",
-		"twitter": "",
-		"updated": "",
-		"playlists": [
-			{ "url": "http://www.staroeradio.ru/ices128.m3u", "format": "mp3",  "quality": "highest" },
-			{ "url": "http://www.staroeradio.ru/ices64.m3u", "format": "mp3",  "quality": "high" },
-			{ "url": "http://www.staroeradio.ru/ices32.m3u", "format": "mp3",  "quality": "low" }
-		],
-		"preroll": [ 
 
+
+		"playlists": [
+			{ "url": "/ices128.m3u", "format": "mp3",  "quality": "highest" },
+			{ "url": "/ices64.m3u", "format": "mp3",  "quality": "high" },
+			{ "url": "/ices32.m3u", "format": "mp3",  "quality": "low" }
 		],
-		"listeners": "0",
+
 		"lastPlaying": ""
 	},
 	{
 		"id": "childradio",
-		"title": "Old radio for children",
-		"description": "Old radio for children",
+		"title": "Vintage Children's Radio",
+		"description": "Vintage Children's Radio Programs: Fairy Tales, Audio Plays, Poems & Educational Shows",
 		"genre": "oldies",
 		"image": "plugins/Staroe/html/images/childradio_svg.png",
-		"largeimage": "plugins/Staroe/html/images/childradio_svg.png",
-		"xlimage": "plugins/Staroe/html/images/childradio_svg.png",
-		"twitter": "",
-		"updated": "",
+
+
 		"playlists": [
-			{ "url": "http://www.staroeradio.ru/detskoe128.m3u", "format": "mp3",  "quality": "highest" },			
-			{ "url": "http://www.staroeradio.ru/detskoe64.m3u", "format": "mp3",  "quality": "high" },
-			{ "url": "http://www.staroeradio.ru/detskoe32.m3u", "format": "mp3",  "quality": "low" }
+			{ "url": "/detskoe128.m3u", "format": "mp3",  "quality": "highest" },			
+			{ "url": "/detskoe64.m3u", "format": "mp3",  "quality": "high" },
+			{ "url": "/detskoe32.m3u", "format": "mp3",  "quality": "low" }
 		],
-		"preroll": [ 
-			
-		],
-		"listeners": "0",
+
 		"lastPlaying": ""
 	},
 	{
 		"id": "oldmusic",
-		"title": "Old radio (musical)",
-		"description": "Old radio (musical)",
+		"title": "Vintage Music",
+		"description": "Golden Archive of Radio Music: Patriotic Anthems,Wartime Songs, Classical Masterpieces & Traditional Melodies",
 		"genre": "oldies",
 		"image": "plugins/Staroe/html/images/oldradiomusic_svg.png",
-		"largeimage": "plugins/Staroe/html/images/oldradiomusic_svg.png",
-		"xlimage": "plugins/Staroe/html/images/oldradiomusic_svg.png",
-		"twitter": "",
-		"updated": "",
+
 		"playlists": [
-			{ "url": "http://www.staroeradio.ru/music128.m3u", "format": "mp3",  "quality": "highest" },			
-			{ "url": "http://www.staroeradio.ru/music64.m3u", "format": "mp3",  "quality": "high" },
-			{ "url": "http://www.staroeradio.ru/music32.m3u", "format": "mp3",  "quality": "low" }
+			{ "url": "/music128.m3u", "format": "mp3",  "quality": "highest" },			
+			{ "url": "/music64.m3u", "format": "mp3",  "quality": "high" },
+			{ "url": "/music32.m3u", "format": "mp3",  "quality": "low" }
 		],
-		"preroll": [ 
-			
-		],
-		"listeners": "0",
+
 		"lastPlaying": ""
 	}]}

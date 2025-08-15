@@ -16,7 +16,6 @@ use feature qw(fc);
 use Data::Dumper;
 use JSON::XS::VersionOneAndTwo;
 use Slim::Networking::SimpleAsyncHTTP;
-# use XML::LibXML;
 use Slim::Utils::Strings qw(string);
 use Slim::Utils::Strings qw(string cstring);
 use Slim::Utils::Prefs;
@@ -27,20 +26,36 @@ use URI::Escape;
 use URI::Escape qw(uri_escape_utf8);
 use Encode qw(encode decode);
 use Encode::Guess;
+our $pluginDir;
+use warnings;
+use HTML::TokeParser;
+
 use constant HTTP_TIMEOUT => 15;
 use constant HTTP_CACHE => 1;
 use constant HTTP_EXPIRES => '1h';
 use constant MIN_SEARCH_LENGTH => 3;
-our $pluginDir;
 
-my $log;
+use constant HOST_CONFIG => {
+    # su-домены → audiopedia.su
+    'svidetel\.su'        => { host => 'svidetel.su',        base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=svidetel&id=' },
+    'reportage\.su'       => { host => 'reportage.su',       base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=reportage&id=' },
+    'theatrologia\.su'    => { host => 'theatrologia.su',    base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=theatrologia&id=' },
+    'lektorium\.su'       => { host => 'lektorium.su',       base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=lektorium&id=' },
+    'staroeradio\.ru'     => { host => 'staroeradio.ru',     base => 'http://server.audiopedia.su:8888/get_mp3_128.php?id=' },
 
-
+    # world-домены → audiopedia.world
+    'svidetel\.net'       => { host => 'svidetel.net',       base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=svidetel&id=' },
+    'reportage\.site'     => { host => 'reportage.site',     base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=reportage&id=' },
+    'theatrologia\.com'   => { host => 'theatrologia.com',   base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=theatrologia&id=' },
+    'lektorium\.net'      => { host => 'lektorium.net',      base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=lektorium&id=' },
+    'staroeradio\.com'    => { host => 'staroeradio.com',    base => 'http://server.audiopedia.world:8888/get_mp3_128.php?id=' },
+};
 
 # Get the data related to this plugin and preset certain variables with 
 # default values in case they are not set
 my $prefs = preferences('plugin.staroe');
 
+my $log;
 
 # This is the entry point in the script
 BEGIN {
@@ -57,7 +72,6 @@ BEGIN {
 
 #
 #
-
 sub _transliterate {
     my ($text) = @_;
 
@@ -98,7 +112,9 @@ sub initPlugin {
                     streamingQuality => 'highest', 
                     descriptionInTitle => 0, 
                     secondLineText => 'description',
-                    translitSearch=>'disable', });
+                    translitSearch=>'disable', 
+                    siteSelector=>'staroeradio.ru'
+                    });
     Slim::Utils::Strings::loadFile(File::Spec->catfile($pluginDir, 'strings.txt'));
     # Initialize the plugin with the given values. The 'feed' is the first
     # method called. The available menu entries will be shown in the new 
@@ -137,7 +153,7 @@ sub _feedHandler {
     my $fetch;
     $fetch = sub {
 
-        $log->debug("Reading local file channels.json");
+        #$log->debug("Reading local file channels.json");
 
         # read local file channels.json
         my $json_content;
@@ -157,10 +173,10 @@ sub _feedHandler {
         
         # add menu item "Search"
         push @$menu, {
-            #name =>  cstring($client, 'PLUGIN_STAROE_SEARCH'),
+            name =>  string('PLUGIN_STAROE_SEARCH'),
             #type => 'search',
             id => '1',
-            name=>'Search',
+            #name=>'Search',
             type =>'search',
         
             url => \&_searchHandler,
@@ -189,130 +205,136 @@ sub _parseChannel {
 
     return {
         name => _getFirstLineText($channel, 0),
-        description => $channel->{'description'},
-        
+        description => $channel->{'description'},      
         
         line1 => _getFirstLineText($channel, 1),
         line2 => _getSecondLineText($channel),
         type =>'audio',
         url => _getStream($channel),
-        image => $channel->{'largeimage'}
+        image => $channel->{'image'}
     };
 }
 
 sub _getStream {
     my ($channel) = shift;
-
-    my ($quality, $format) = split(':', $prefs->get('streamingQuality'));
+    my $result;    my ($quality, $format) = split(':', $prefs->get('streamingQuality'));
     my $playlists = $channel->{'playlists'};
     for my $stream (@$playlists) {
         if ($stream->{'quality'} eq $quality && $stream->{'format'} eq $format) {
-            $log->debug("Using stream url $stream->{'url'}");
-            return $stream->{'url'};
+            #$log->debug("Using stream url $stream->{'url'}");
+
+            return "http://" . $prefs->get('siteSelector') .  $stream->{'url'};
         }
     }
     $log->warn("Could not find preferred streaming quality. Returning first result as fallback: $playlists->[0]->{'quality'}:$playlists->[0]->{'format'}");
-    return $playlists->[0]->{'url'};
+    return "http://" . $prefs->get('siteSelector') . $playlists->[0]->{'url'};
 }
 
-# sub _sortChannels {
-#     my ($channels) = shift;
-
-#     my @sorted_channels;
-#     my $orderBy = $prefs->get('orderBy');
-#     if ($orderBy eq 'popular') {
-#         # sort by number of listeners descending
-#         @sorted_channels = sort { $b->{listeners} <=> $a->{listeners} } @$channels;
-#     }
-#     elsif ($orderBy eq 'title') {
-#         # sort alphabetically but case-insensitive
-#         @sorted_channels = sort { fc($a->{title}) cmp fc($b->{title}) } @$channels;
-#     }
-#     else {
-#         # do not sort, use order as provided in channel feed
-#         @sorted_channels = @$channels;
-#     }
-#     return \@sorted_channels;
-# }
 
 sub _getFirstLineText {
-    my ($channel, $isFirstLine) = @_;
+    my ($channel) = shift;
+    # my ($channel, $isFirstLine) = @_;
 
-    # Display the channel description in the title. If a skin/app supports line1/line2
-    # the description is added to the title if the description is not already shown on
-    # line2.
-    if ($prefs->get('descriptionInTitle') && (
-        ($prefs->get('secondLineText') eq 'description' && !$isFirstLine) ||
-        ($prefs->get('secondLineText') ne 'description' && $isFirstLine)
-        )) {
-        return "$channel->{'title'}: $channel->{'description'}";
-    }
-    else {
+    # # Display the channel description in the title. If a skin/app supports line1/line2
+    # # the description is added to the title if the description is not already shown on
+    # # line2.
+    # if ($prefs->get('descriptionInTitle') && (
+    #     ($prefs->get('secondLineText') eq 'description' && !$isFirstLine) ||
+    #     ($prefs->get('secondLineText') ne 'description' && $isFirstLine)
+    #     )) {
+    #     return "$channel->{'title'}: $channel->{'description'}";
+    # }
+    # else {
         return $channel->{'title'};
-    }
+    # }
 }
 
 sub _getSecondLineText {
     my ($channel) = shift;
 
-    my $secondLineText = $prefs->get('secondLineText');
-    if ($secondLineText eq 'lastPlayed') {
-        return $channel->{'lastPlaying'};
-    }
-    elsif ($secondLineText eq 'listeners') {
-        return sprintf(string('PLUGIN_STAROE    _SECOND_LINE_TEXT_LISTENERS_SPRINTF', $channel->{'listeners'}));
-    }
-    else {
+    # my $secondLineText = $prefs->get('secondLineText');
+    # if ($secondLineText eq 'lastPlayed') {
+    #     return $channel->{'lastPlaying'};
+    # }
+    # elsif ($secondLineText eq 'listeners') {
+    #     return sprintf(string('PLUGIN_STAROE    _SECOND_LINE_TEXT_LISTENERS_SPRINTF', $channel->{'listeners'}));
+    # }
+    # else {
         return $channel->{'description'};
-    }
+    # }
 }
 # Обработчик поиска
+# sub _searchHandler {
+#     my (  $client, $cb, $args) = @_;
+
+#     my $query = $args->{search};
+
+#     # we apply transliteration if enabled
+#     my $translit =  $prefs->get('translitSearch');
+
+#     if ($translit eq 'enable') {
+#         $query = _transliterate($query);
+#      }
+#     if (length($query) < MIN_SEARCH_LENGTH) {
+#         return $cb->([]);
+#     }
+
+#     my $timestamp = time();
+#     my $url ="http://" . $prefs->get('siteSelector') . "/search?q=" . uri_escape_utf8($query) . "&_=$timestamp";
+#     #my $url ="http://staroeradio.ru/search?q=" . uri_escape_utf8($query) . "&_=$timestamp";
+
+#     Slim::Networking::SimpleAsyncHTTP->new(
+#         sub {
+#             my $http = shift;
+#             my $html = $http->content;
+            
+#             my @results = _parseSearchResults($html);
+
+#             $cb->(\@results);
+#         },
+#         sub {
+#             $log->error("Search failed");
+#             $cb->([]);
+#         },
+#         timeout => HTTP_TIMEOUT
+#     )->get($url);
+# }
+
 sub _searchHandler {
     my (  $client, $cb, $args) = @_;
-
     my $query = $args->{search};
-    #$log->debug(Dumper($args));
-    #$log->debug(Dumper($params));
 
     # we apply transliteration if enabled
     my $translit =  $prefs->get('translitSearch');
-    #$log->debug(Dumper($translit));
-
     if ($translit eq 'enable') {
         $query = _transliterate($query);
      }
     if (length($query) < MIN_SEARCH_LENGTH) {
         return $cb->([]);
     }
-    # $log->debug($query_trans);
-    my $timestamp = time();
-    my $url = "http://staroeradio.ru/search?q=" . uri_escape_utf8($query) . "&_=$timestamp";
 
-    #$log->debug("Search started");
-    #$log->debug($query);
-    #$log->debug($url );
+    my $timestamp = time();
+    my $url = "http://" . $prefs->get('siteSelector') . "/search?q=" . uri_escape_utf8($query) . "&_=$timestamp";
+
     Slim::Networking::SimpleAsyncHTTP->new(
         sub {
             my $http = shift;
             my $html = $http->content;
-            #$log->debug($html);
             my @results = _parseSearchResults($html);
-
             $cb->(\@results);
         },
         sub {
             $log->error("Search failed");
             $cb->([]);
+        },
+        {   
+            timeout => HTTP_TIMEOUT,
+            cache   => HTTP_CACHE,
+            expires => HTTP_EXPIRES,
         }
     )->get($url);
 }
 
-use URI::Escape;
-use strict;
-use warnings;
-
-use HTML::TokeParser;
-use Encode qw(decode);
 
 sub _parseSearchResults {
     my ($html) = @_;
@@ -330,39 +352,44 @@ sub _parseSearchResults {
     while (my $token = $p->get_tag('a')) {
         my $href = $token->[1]{href};
         next unless defined $href;
-        # $log->debug($href);
         # Проверяем, есть  ли в ссылке  /audio/
-        #next unless $href =~ m{^/(?:audio|radio)/(\d+)}i;
+
         next unless $href =~ m{/(?:audio|radio)/(\d+)}i;
-        #$log->debug($href);
-        # Определяем  хост
+
+
+
         my ($host, $base_url);
 
-        if ($href =~ /svidetel\.su/) {
-            $host = 'svidetel.su';
-            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=svidetel&id=";
+        # Сначала проверяем случай /audio/123 или /radio/123
+        if ($href =~ m{^/(?:audio|radio)/(\d+)}i) {
+            my $selected_site = $prefs->get('siteSelector') || 'staroeradio.ru';
+
+            if ($selected_site eq 'staroeradio.com') {
+                $host     = 'staroeradio.com';
+                $base_url = 'http://server.audiopedia.world:8888/get_mp3_128.php?id=';
+            } else {
+                $host     = 'staroeradio.ru';
+                $base_url = 'http://server.audiopedia.su:8888/get_mp3_128.php?id=';
+            }
         }
-        elsif ($href =~ /reportage\.su/) {
-            $host = 'reportage.su';
-            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=reportage&id=";
-        }
-        elsif ($href =~ /theatrologia\.su/) {
-            $host = 'theatrologia.su';
-            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=theatrologia&id=";
-        }
-        elsif ($href =~ /lektorium\.su/) {
-            $host = 'lektorium.su';
-            $base_url = "http://server.audiopedia.su:8888/get_mp3_project_1.php?site=lektorium&id=";
-        }
-        elsif ($href =~ /staroeradio\.ru/i || $href =~ m{^/audio/}) {
-            $host = 'staroeradio.ru';
-            $base_url = "http://server.audiopedia.su:8888/get_mp3_128.php?id=";
-        }
+        # Иначе — ищем по домену
         else {
+            for my $pattern (keys %{HOST_CONFIG()}) {
+                if ($href =~ /$pattern/i) {
+                    my $cfg = HOST_CONFIG->{$pattern};
+                    $host     = $cfg->{host};
+                    $base_url = $cfg->{base};
+                    last;
+                }
+            }
+        }
+
+        if (!$host) {
             $log->warn("Unknown host for href: $href");
             next;
-        }
-        # $log->debug($href);
+        }      
+
+
         # Получаем ID из href
         my $track_id;
         if ($href =~ m{/audio/(\d+)}i) {
@@ -405,15 +432,21 @@ sub _parseSearchResults {
         # Формируем stream URL
         my $stream_url = $base_url . $track_id;
 
-        # Добавляем результат
+        #Добавляем результат
         push @results, {
             name => $title,
             play => $stream_url,
             url  => $stream_url,
+            title => $title,
+            artist => undef,
+            album  => undef,
+            duration => undef,
             type => 'audio',
             description => "Аудиозапись с $host",
-            image => "plugins/Staroe/html/images/foundbroadcast1_svg.png"
+            image => "plugins/Staroe/html/images/foundbroadcast2_svg.png"
         };
+         # Создаём Song с нужным названием
+
     }
 
     return @results;

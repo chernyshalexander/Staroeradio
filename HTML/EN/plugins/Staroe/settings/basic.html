@@ -28,4 +28,13 @@
     </div>
     [% END %]
 
+    [% WRAPPER setting title="PLUGIN_STAROE_SITESELECTOR" desc="PLUGIN_STAROE_SITESELECTOR_DESC" %]
+    <div class="prefDesc">
+        <select name="pref_siteSelector" class="stdedit">
+                <option value="staroeradio.ru"[% IF prefs.siteSelector == "staroeradio.ru" %] selected[% END %]>[% 'PLUGIN_STAROE_SITESELECTOR_SITE_RU' | getstring %]</option>
+                <option value="staroeradio.com"[% IF prefs.siteSelector == "staroeradio.com" %] selected[% END %]>[% 'PLUGIN_STAROE_SITESELECTOR_SITE_COM' | getstring %]</option>
+        </select>
+    </div>
+    [% END %]
+
 [% PROCESS settings/footer.html %]

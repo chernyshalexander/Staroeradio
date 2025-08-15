@@ -14,7 +14,7 @@ PLUGIN_STAROE_MENU_LOCATION
 	EN	Menu location
 
 PLUGIN_STAROE_MENU_LOCATION_DESC
-	EN	Show the STAROE menu in either the Radio menu, or the My Apps menu. Requires a restart to take effect.
+	EN	Show the Staroe Radio menu in either the Radio menu, or the My Apps menu. Requires a restart to take effect.
 
 PLUGIN_STAROE_MENU_LOCATION_RADIO
 	EN	Radio
@@ -96,3 +96,18 @@ PLUGIN_STAROE_TRANSLIT
 
 PLUGIN_STAROE_TRANSLIT_DESC
 	EN	If enabled, the search will use transliteration (e.g., 'saltykov' → 'салтыков').This setting allows converting between Latin and Cyrillic characters for broader search matching.
+
+PLUGIN_STAROE_SITESELECTOR
+	EN	Pick a server:
+
+PLUGIN_STAROE_SITESELECTOR_DESC
+	EN	This setting lets you choose between staroeradio.ru and staroeradio.com for the plugin, based on your preference or server availability
+
+PLUGIN_STAROE_SITESELECTOR_SITE_RU
+	EN	staroeradio.ru
+
+PLUGIN_STAROE_SITESELECTOR_SITE_COM
+	EN	staroeradio.com
+
+PLUGIN_STAROE_SEARCH
+	EN	Search
