@@ -20,9 +20,11 @@
 Чтобы добавить плагин в ваш Lyrion Music Server, перейдите на страницу настроек, нажмите "Manage Plugins" ("Управление плагинами") 
 и добавьте новый репозиторий, указав URL XML-файла:
 https://chernyshalexander.github.io/StaroeRadio/public.xml
-### Лицензия
-MIT License — см. файл `LICENSE`.
------
+
+
+### License
+MIT License — see the `LICENSE` file. 
+
 
 #### StaroeRadio — Plugin for Logitech Media Server (LMS)    
 This plugin provides access to vintage Russian radio broadcasts from [staroeradio.ru](http://www.staroeradio.ru/).
