@@ -26,6 +26,7 @@ use URI::Escape;
 use URI::Escape qw(uri_escape_utf8);
 use Encode qw(encode decode);
 use Encode::Guess;
+<<<<<<< HEAD
 our $pluginDir;
 use warnings;
 use HTML::TokeParser;
@@ -34,6 +35,16 @@ use constant HTTP_TIMEOUT => 15;
 use constant HTTP_CACHE => 1;
 use constant HTTP_EXPIRES => '1h';
 use constant MIN_SEARCH_LENGTH => 3;
+=======
+# use constant HTTP_TIMEOUT => 15;
+# use constant HTTP_CACHE => 1;
+# use constant HTTP_EXPIRES => '1h';
+use constant MIN_SEARCH_LENGTH => 3;
+our $pluginDir;
+use warnings;
+use HTML::TokeParser;
+#use Encode qw(decode);
+>>>>>>> 324fc1a82081cba778215b0aaf1401bd7a7b4699
 
 use constant HOST_CONFIG => {
     # su-домены → audiopedia.su
@@ -335,6 +346,10 @@ sub _searchHandler {
     )->get($url);
 }
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 324fc1a82081cba778215b0aaf1401bd7a7b4699
 
 sub _parseSearchResults {
     my ($html) = @_;
