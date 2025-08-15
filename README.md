@@ -23,7 +23,7 @@ https://chernyshalexander.github.io/StaroeRadio/public.xml
 
 
 ### License
-MIT License — see the `LICENSE` file. 
+MIT License — см.`LICENSE` файл. 
 
 
 #### StaroeRadio — Plugin for Logitech Media Server (LMS)    
