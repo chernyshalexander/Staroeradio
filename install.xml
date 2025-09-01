@@ -2,7 +2,7 @@
 <extension>
     <name>PLUGIN_STAROE</name>
     <module>Plugins::Staroe::Plugin</module>
-    <version>0.5.1</version>
+    <version>0.5.2</version>
     <description>PLUGIN_STAROE_DESC</description>
     <defaultState>enabled</defaultState>
     <targetApplication>
