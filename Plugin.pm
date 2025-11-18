@@ -428,25 +428,45 @@ sub _parseSearchResults {
         $title =~ s/^\s+|\s+$//g;
 
         # Декодируем UTF-8 (если нужно)
-        $title = decode('UTF-8', $title);
+        my $title = decode('UTF-8', $title);   # ок, оставляем
 
         # Формируем stream URL
         my $stream_url = $base_url . $track_id;
 
-        #Добавляем результат
         push @results, {
-            name => $title,
-            play => $stream_url,
-            url  => $stream_url,
-            title => $title,
-            artist => undef,
-            album  => undef,
-            duration => undef,
-            type => 'audio',
+            name     => $title,
+            title    => $title,           # на всякий случай оставляем
+            artist   => 'Старое радио',
+            play     => $stream_url,
+            url      => $stream_url,
+            type     => 'audio',
+            duration => 0,
+            image    => "plugins/Staroe/html/images/foundbroadcast2_svg.png",
             description => "Аудиозапись с $host",
-            image => "plugins/Staroe/html/images/foundbroadcast2_svg.png",
-            on_play => sub { shift->streamingSong({ isLive => 0 }) if shift },
-            duration => 0
+
+            on_play  => sub {
+                my $client = shift or return;
+
+                $client->streamingSong({ isLive => 0 });
+
+                Slim::Utils::Timers::setTimer(
+                    undef,
+                    Time::HiRes::time() + 1.5,
+                    sub {
+                        my $song = $client->playingSong() or return;
+
+                        $song->title($title);
+                        $song->artist('Старое радио');
+                        $song->album('Архив передач');
+                        $song->trackArtist('Старое радио');
+
+                        $client->currentSong()->title($title);
+                        $client->currentSong()->artist('Старое радио');
+
+                        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+                    }
+                );
+            },
         };
          # Создаём Song с нужным названием
 
