@@ -41,16 +41,14 @@ use constant HOST_CONFIG => {
     'reportage\.su'       => { host => 'reportage.su',       base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=reportage&id=' },
     'theatrologia\.su'    => { host => 'theatrologia.su',    base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=theatrologia&id=' },
     'lektorium\.su'       => { host => 'lektorium.su',       base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=lektorium&id=' },
-    'staroeradio\.ru'     => { host => 'staroeradio.ru',     base => 'http://server.audiopedia.su:8888/get_mp3_radio_128.php?id=' },
-    #'staroeradio\.ru'     => { host => 'staroeradio.ru',     base => 'http://server.audiopedia.su:8888/get_mp3_128.php?id=' },
+    #'staroeradio\.ru'     => { host => 'staroeradio.ru',     base => 'http://server.audiopedia.su:8888/get_mp3_radio_128.php?id=' },
 
     # world-домены → audiopedia.world
     'svidetel\.net'       => { host => 'svidetel.net',       base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=svidetel&id=' },
     'reportage\.site'     => { host => 'reportage.site',     base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=reportage&id=' },
     'theatrologia\.com'   => { host => 'theatrologia.com',   base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=theatrologia&id=' },
     'lektorium\.net'      => { host => 'lektorium.net',      base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=lektorium&id=' },
-    'staroeradio\.com'    => { host => 'staroeradio.com',    base => 'http://server.audiopedia.world/get_mp3_radio_128.php?id=' },
-    #'staroeradio\.com'    => { host => 'staroeradio.com',    base => 'http://server.audiopedia.world:8888/get_mp3_128.php?id=' },
+    #'staroeradio\.com'    => { host => 'staroeradio.com',    base => 'http://server.audiopedia.world:8888/get_mp3_radio_128.php?id=' },
 };
 
 # Get the data related to this plugin and preset certain variables with 
@@ -369,10 +367,10 @@ sub _parseSearchResults {
 
             if ($selected_site eq 'staroeradio.com') {
                 $host     = 'staroeradio.com';
-                $base_url = 'http://server.audiopedia.world:8888/get_mp3_128.php?id=';
+                $base_url = 'http://server.audiopedia.world:8888/get_mp3_radio_128.php?id=';
             } else {
                 $host     = 'staroeradio.ru';
-                $base_url = 'http://server.audiopedia.su:8888/get_mp3_128.php?id=';
+                $base_url = 'http://server.audiopedia.su:8888/get_mp3_radio_128.php?id=';
             }
         }
         # Иначе — ищем по домену
@@ -446,7 +444,9 @@ sub _parseSearchResults {
             duration => undef,
             type => 'audio',
             description => "Аудиозапись с $host",
-            image => "plugins/Staroe/html/images/foundbroadcast2_svg.png"
+            image => "plugins/Staroe/html/images/foundbroadcast2_svg.png",
+            on_play => sub { shift->streamingSong({ isLive => 0 }) if shift },
+            duration => 0
         };
          # Создаём Song с нужным названием
 
