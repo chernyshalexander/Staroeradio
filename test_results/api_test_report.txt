@@ -1,0 +1,117 @@
+================================================================================
+Staroe Radio API Test Report
+================================================================================
+Generated: Wed Jul 22 13:30:42 2026
+
+
+================================================================================
+TEST SUITE 1: Live Stream - Current Track Info (.ru)
+================================================================================
+
+================================================================================
+TEST 1: Get current track info (.ru)
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.su:8888/getcurrentinfo.php
+❌ FAIL
+Status: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+Error: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+
+================================================================================
+TEST SUITE 2: Track Metadata with Cover Images (.ru)
+================================================================================
+
+================================================================================
+TEST 2: Get track metadata for track_id=12345 (.ru)
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.su:8888/getradioinfo.php?cmd=getMetaInfo&track_id=12345
+❌ FAIL
+Status: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+Error: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+
+================================================================================
+TEST SUITE 3: Multiple Track Metadata Requests
+================================================================================
+
+================================================================================
+TEST 3: Get metadata for track_id=10000
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.su:8888/getradioinfo.php?cmd=getMetaInfo&track_id=10000
+❌ FAIL
+Status: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+Error: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+
+================================================================================
+TEST 4: Get metadata for track_id=15000
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.su:8888/getradioinfo.php?cmd=getMetaInfo&track_id=15000
+❌ FAIL
+Status: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+Error: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+
+================================================================================
+TEST 5: Get metadata for track_id=20000
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.su:8888/getradioinfo.php?cmd=getMetaInfo&track_id=20000
+❌ FAIL
+Status: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+Error: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+
+================================================================================
+TEST 6: Get metadata for track_id=25000
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.su:8888/getradioinfo.php?cmd=getMetaInfo&track_id=25000
+❌ FAIL
+Status: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+Error: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+
+================================================================================
+TEST 7: Get metadata for track_id=30000
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.su:8888/getradioinfo.php?cmd=getMetaInfo&track_id=30000
+❌ FAIL
+Status: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+Error: 500 Can't connect to server.audiopedia.su:8888 (Connection timed out)
+
+================================================================================
+TEST SUITE 4: Live Stream - Current Track Info (.world)
+================================================================================
+
+================================================================================
+TEST 8: Get current track info (.world)
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.world:8888/getcurrentinfo.php
+✅ PASS
+Status: 200 OK
+Content-Type: text/xml; charset=UTF-8
+Content-Length: 790 bytes
+
+Response Content (first 300 chars):
+﻿<?xml version="1.0" encoding="UTF-8"?><data><detskoeradio><id>29144</id><file>Всесоюзное радио - На зарядку становись - Детская утренняя гимнастика 6 (50-е г.).mp3</file><name>Всесоюзное радио - На зарядку становись - Детская утренняя гимнастика - (6), (Зап.: 1970-е гг.)</name><time>00:14:02</time>
+✅ .world domain is accessible
+
+================================================================================
+TEST SUITE 5: Track Metadata (.world)
+================================================================================
+
+================================================================================
+TEST 9: Get metadata for track_id=12345 (.world)
+--------------------------------------------------------------------------------
+URL: http://server.audiopedia.world:8888/getradioinfo.php?cmd=getMetaInfo&track_id=12345
+✅ PASS
+Status: 200 OK
+Content-Type: text/html; charset=UTF-8
+Content-Length: 0 bytes
+❌ Failed to parse .world JSON: malformed JSON string, neither array, object, number, string or atom, at character offset 0 (before "(end of string)") at test_api_requests.pl line 408.
+
+
+================================================================================
+TEST SUMMARY
+================================================================================
+Total tests: 9
+Passed: 2
+Failed: 7
+Success rate: 22.2%
+
+================================================================================
+Test completed: Wed Jul 22 13:34:14 2026
+================================================================================

@@ -14,11 +14,15 @@ use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Utils::Strings qw(string);
 use Slim::Utils::Prefs;
 use Slim::Utils::Log;
+use Slim::Utils::Cache;
 use base qw(Slim::Plugin::OPMLBased);
 use URI::Escape qw(uri_escape_utf8);
 use Encode qw(decode);
 our $pluginDir;
 my $cachedChannels;
+
+# Track cover art: track_id => image URL, populated by parsing track pages
+my %coverCache;
 my @translitKeys;
 my %translitMap = (
     '"' => 'ъ',
@@ -41,6 +45,8 @@ use constant HTTP_TIMEOUT => 15;
 use constant HTTP_CACHE => 1;
 use constant HTTP_EXPIRES => '1h';
 use constant MIN_SEARCH_LENGTH => 3;
+use constant TRACK_PAGE_CACHE_EXPIRES => '1 day';
+use constant COVER_CACHE_EXPIRES => '30 days';
 
 use constant HOST_CONFIG => {
     # su-домены → audiopedia.su
@@ -120,6 +126,13 @@ sub initPlugin {
 
     # Pre-sort transliteration keys
     @translitKeys = sort { length($b) <=> length($a) } keys %translitMap;
+
+    # Provide track covers (parsed from track pages) for stream URLs
+    require Slim::Formats::RemoteMetadata;
+    Slim::Formats::RemoteMetadata->registerProvider(
+        match => qr{/get_mp3},
+        func  => \&_metadataProvider,
+    );
 
     # Pre-load channels
     my $file = File::Spec->catfile($pluginDir, 'channels.json');
@@ -246,6 +259,132 @@ sub _getSecondLineText {
     # }
 }
 
+# --- Track cover art support ---------------------------------------------
+
+# Extract track id from stream URLs like .../get_mp3_radio_128.php?id=8537
+sub _trackIdFromUrl {
+    my ($url) = @_;
+    return $url =~ /[?&]id=(\d+)/ ? $1 : undef;
+}
+
+# Cached cover URL for a track id, or undef
+sub _getCoverFromCache {
+    my ($track_id) = @_;
+
+    return $coverCache{$track_id} if $coverCache{$track_id};
+
+    my $cover = Slim::Utils::Cache->new->get("staroe_cover_$track_id");
+    $coverCache{$track_id} = $cover if $cover;
+
+    return $cover;
+}
+
+sub _storeCover {
+    my ($track_id, $cover) = @_;
+
+    $coverCache{$track_id} = $cover;
+    Slim::Utils::Cache->new->set("staroe_cover_$track_id", $cover, COVER_CACHE_EXPIRES);
+}
+
+# Metadata provider registered for our stream URLs: adds cover/icon to
+# now-playing metadata whenever the UI asks for it
+sub _metadataProvider {
+    my ($client, $url) = @_;
+
+    my $track_id = _trackIdFromUrl($url) or return {};
+    my $cover = _getCoverFromCache($track_id) or return {};
+
+    return {
+        cover => $cover,
+        icon  => $cover,
+    };
+}
+
+# Fetch the track page and store the first image found on it
+sub _fetchTrackCover {
+    my ($client, $track_id) = @_;
+
+    return unless $track_id;
+
+    my $site = $prefs->get('siteSelector') || 'staroeradio.ru';
+    my $page_url = "https://$site/audio/$track_id";
+
+    Slim::Networking::SimpleAsyncHTTP->new(
+        sub {
+            my $http = shift;
+            my $cover = _parseCoverFromPage($http->content, $site);
+
+            if ($cover) {
+                _storeCover($track_id, $cover);
+                $log->debug("Cover for track $track_id: $cover");
+
+                if ($client && $client->playingSong()) {
+                    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+                }
+            }
+            else {
+                $log->warn("No images found on track page $page_url");
+            }
+        },
+        sub {
+            $log->warn("Failed to fetch track page $page_url for cover art");
+        },
+        {
+            timeout => HTTP_TIMEOUT,
+            cache   => HTTP_CACHE,
+            expires => TRACK_PAGE_CACHE_EXPIRES,
+        }
+    )->get($page_url);
+}
+
+# Parse the first cover image URL out of a track page. Images live in
+# <div class="images"><a href="BIG.jpg"><img src="SMALLs.jpg"></a>...</div>;
+# prefer the big image linked in href, fall back to the thumbnail.
+sub _parseCoverFromPage {
+    my ($html, $site) = @_;
+
+    return undef unless defined $html;
+
+    my $p = HTML::TokeParser->new(\$html) or return undef;
+
+    while (my $token = $p->get_tag('div')) {
+        my $class = $token->[1]{class} || '';
+        next unless $class eq 'images';
+
+        while (my $inner = $p->get_token) {
+            last if $inner->[0] eq 'E' && $inner->[1] eq 'div';
+
+            if ($inner->[0] eq 'S' && $inner->[1] eq 'a') {
+                my $href = $inner->[2]{href};
+                if ($href && $href =~ /\.(?:jpe?g|png|gif)$/i) {
+                    return _absoluteImageUrl($href, $site);
+                }
+            }
+
+            if ($inner->[0] eq 'S' && $inner->[1] eq 'img') {
+                my $src = $inner->[2]{src};
+                if ($src && $src =~ /\.(?:jpe?g|png|gif)$/i) {
+                    # Thumbnails carry a trailing "s" before the extension
+                    $src =~ s/s(\.(?:jpe?g|png|gif))$/$1/i;
+                    return _absoluteImageUrl($src, $site);
+                }
+            }
+        }
+    }
+
+    return undef;
+}
+
+sub _absoluteImageUrl {
+    my ($url, $site) = @_;
+
+    return $url if $url =~ m{^https?://}i;
+    return "https://" . ($site || 'staroeradio.ru') . $url;
+}
+
+# --------------------------------------------------------------------------
+
+
 sub _searchHandler {
     my (  $client, $cb, $args) = @_;
     my $query = $args->{search};
@@ -363,6 +502,7 @@ sub _parseSearchResults {
         $title = decode('UTF-8', $title);
 
         my $stream_url = $base_url . $track_id;
+        my $cover = _getCoverFromCache($track_id);
 
         push @results, {
             name        => $title,
@@ -372,11 +512,12 @@ sub _parseSearchResults {
             url         => $stream_url,
             type        => 'audio',
             duration    => 0,
-            image       => "plugins/Staroe/html/images/foundbroadcast2_svg.png",
+            image       => $cover || "plugins/Staroe/html/images/foundbroadcast2_svg.png",
             description => "Аудиозапись с $host",
             on_play     => sub {
                 my $client = shift or return;
                 $client->streamingSong({ isLive => 0 });
+                _fetchTrackCover($client, $track_id);
                 Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + 1.0, sub {
                     my $song = $client->playingSong() or return;
                     $song->title($title);
