@@ -18,11 +18,12 @@ use Slim::Utils::Cache;
 use base qw(Slim::Plugin::OPMLBased);
 use URI::Escape qw(uri_escape_utf8);
 use Encode qw(decode);
+use HTML::Entities qw(decode_entities);
 our $pluginDir;
 my $cachedChannels;
 
-# Track cover art: track_id => image URL, populated by parsing track pages
-my %coverCache;
+# Track page data (cover + correct title/artist), cached in Slim::Utils::Cache
+my $metaStore;
 my @translitKeys;
 my %translitMap = (
     '"' => 'ъ',
@@ -47,20 +48,22 @@ use constant HTTP_EXPIRES => '1h';
 use constant MIN_SEARCH_LENGTH => 3;
 use constant TRACK_PAGE_CACHE_EXPIRES => '1 day';
 use constant COVER_CACHE_EXPIRES => '30 days';
+use constant COVER_ROTATE_INTERVAL => 30;   # seconds between covers of one track
+use constant LIVE_POLL_INTERVAL => 30;      # seconds between getcurrentinfo.php polls
 
 use constant HOST_CONFIG => {
     # su-домены → audiopedia.su
-    'svidetel\.su'        => { host => 'svidetel.su',        base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=svidetel&id=' },
-    'reportage\.su'       => { host => 'reportage.su',       base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=reportage&id=' },
-    'theatrologia\.su'    => { host => 'theatrologia.su',    base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=theatrologia&id=' },
-    'lektorium\.su'       => { host => 'lektorium.su',       base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=lektorium&id=' },
+    'svidetel\.su'        => { host => 'svidetel.su',        name => 'Свидетель',   base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=svidetel&id=' },
+    'reportage\.su'       => { host => 'reportage.su',       name => 'Репортаж',    base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=reportage&id=' },
+    'theatrologia\.su'    => { host => 'theatrologia.su',    name => 'Театрология', base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=theatrologia&id=' },
+    'lektorium\.su'       => { host => 'lektorium.su',       name => 'Лекториум',   base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=lektorium&id=' },
     #'staroeradio\.ru'     => { host => 'staroeradio.ru',     base => 'http://server.audiopedia.su:8888/get_mp3_radio_128.php?id=' },
 
     # world-домены → audiopedia.world
-    'svidetel\.net'       => { host => 'svidetel.net',       base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=svidetel&id=' },
-    'reportage\.site'     => { host => 'reportage.site',     base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=reportage&id=' },
-    'theatrologia\.com'   => { host => 'theatrologia.com',   base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=theatrologia&id=' },
-    'lektorium\.net'      => { host => 'lektorium.net',      base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=lektorium&id=' },
+    'svidetel\.net'       => { host => 'svidetel.net',       name => 'Свидетель',   base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=svidetel&id=' },
+    'reportage\.site'     => { host => 'reportage.site',     name => 'Репортаж',    base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=reportage&id=' },
+    'theatrologia\.com'   => { host => 'theatrologia.com',   name => 'Театрология', base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=theatrologia&id=' },
+    'lektorium\.net'      => { host => 'lektorium.net',      name => 'Лекториум',   base => 'http://server.audiopedia.world:8888/get_mp3_project_1.php?site=lektorium&id=' },
     #'staroeradio\.com'    => { host => 'staroeradio.com',    base => 'http://server.audiopedia.world:8888/get_mp3_radio_128.php?id=' },
 };
 
@@ -127,10 +130,11 @@ sub initPlugin {
     # Pre-sort transliteration keys
     @translitKeys = sort { length($b) <=> length($a) } keys %translitMap;
 
-    # Provide track covers (parsed from track pages) for stream URLs
+    # Provide track covers and correct titles for stream URLs: archive files
+    # (get_mp3...) and live streams (the m3u resolves to ...:8000/ices128 etc.)
     require Slim::Formats::RemoteMetadata;
     Slim::Formats::RemoteMetadata->registerProvider(
-        match => qr{/get_mp3},
+        match => qr{/get_mp3|/(?:ices|detskoe|music)\d*(?:\.m3u)?$},
         func  => \&_metadataProvider,
     );
 
@@ -267,67 +271,280 @@ sub _trackIdFromUrl {
     return $url =~ /[?&]id=(\d+)/ ? $1 : undef;
 }
 
-# Cached cover URL for a track id, or undef
-sub _getCoverFromCache {
-    my ($track_id) = @_;
+# The site (project host) a stream URL belongs to, e.g. lektorium.su;
+# falls back to the configured main site for the radio archive streams
+sub _hostFromUrl {
+    my ($url) = @_;
 
-    return $coverCache{$track_id} if $coverCache{$track_id};
+    for my $cfg (values %{HOST_CONFIG()}) {
+        return $cfg->{host} if index($url, $cfg->{base}) == 0;
+    }
 
-    my $cover = Slim::Utils::Cache->new->get("staroe_cover_$track_id");
-    $coverCache{$track_id} = $cover if $cover;
-
-    return $cover;
+    return $prefs->get('siteSelector') || 'staroeradio.ru';
 }
 
-sub _storeCover {
-    my ($track_id, $cover) = @_;
+# Human-readable site name, used as the fallback artist for project tracks
+sub _siteName {
+    my ($site) = @_;
 
-    $coverCache{$track_id} = $cover;
-    Slim::Utils::Cache->new->set("staroe_cover_$track_id", $cover, COVER_CACHE_EXPIRES);
+    for my $cfg (values %{HOST_CONFIG()}) {
+        return $cfg->{name} if $cfg->{host} eq $site;
+    }
+
+    return 'Старое радио';
 }
 
-# Metadata provider registered for our stream URLs: adds cover/icon to
-# now-playing metadata whenever the UI asks for it
+# The API server matching the configured site
+sub _apiServer {
+    return ($prefs->get('siteSelector') || '') eq 'staroeradio.com'
+        ? 'server.audiopedia.world:8888'
+        : 'server.audiopedia.su:8888';
+}
+
+# --- Live streams (Vintage / Children's radio) ----------------------------
+
+sub _isLiveUrl {
+    my ($url) = @_;
+    return $url =~ m{/(?:ices|detskoe|music)\d*(?:\.m3u)?$}i;
+}
+
+# Which section of the getcurrentinfo.php answer corresponds to this stream
+sub _liveSection {
+    my ($url) = @_;
+    return $url =~ m{/detskoe}i ? 'detskoeradio'
+         : $url =~ m{/ices}i    ? 'staroeradio'
+         :                        undef;
+}
+
+# Shared persistent cache instance
+sub _cache {
+    $metaStore ||= Slim::Utils::Cache->new;
+    return $metaStore;
+}
+
+# Track page data for a site+track id: undef = not fetched yet, '' = page had
+# nothing useful, otherwise { cover => ..., title => ..., artist => ... }
+sub _getMeta {
+    my ($site, $track_id) = @_;
+
+    return _cache()->get("staroe_meta_$site/$track_id");
+}
+
+sub _storeMeta {
+    my ($site, $track_id, $meta) = @_;
+
+    _cache()->set("staroe_meta_$site/$track_id", $meta, COVER_CACHE_EXPIRES);
+}
+
+# Metadata provider registered for our stream URLs: serves the cover and the
+# correct (site-provided) title/artist once parsed, and kicks off parsing on
+# the first request. This also overrides the ID3 tags of archive files, which
+# are often written in CP1251 and show up as mojibake. Works for any playback
+# source (menu, CLI, favorites) since the UI always asks for metadata.
 sub _metadataProvider {
     my ($client, $url) = @_;
 
-    my $track_id = _trackIdFromUrl($url) or return {};
-    my $cover = _getCoverFromCache($track_id) or return {};
+    return _liveMetadata($client, $url) if _isLiveUrl($url);
 
-    return {
-        cover => $cover,
-        icon  => $cover,
-    };
+    my $track_id = _trackIdFromUrl($url) or return {};
+    my $site = _hostFromUrl($url);
+
+    my $meta = _getMeta($site, $track_id);
+    if (!defined $meta) {
+        # Nothing known yet - fetch asynchronously; the newmetadata
+        # notification on completion makes the UI ask again
+        _fetchTrackCover($client, $site, $track_id);
+        return {};
+    }
+
+    my %out;
+    my $cover = $meta->{cover};
+    if ($client && $meta->{covers} && @{$meta->{covers}} > 1) {
+        $cover = _armCoverRotation($client, $url, $meta->{covers});
+    }
+    $out{cover} = $out{icon} = $cover if $cover;
+    $out{title}  = $meta->{title}  if $meta->{title};
+    $out{artist} = $meta->{artist} if $meta->{artist};
+    return \%out;
 }
 
-# Fetch the track page and store the first image found on it
-sub _fetchTrackCover {
-    my ($client, $track_id) = @_;
+# Cycle through multiple covers of the playing track: pick the current one
+# and rotate it every COVER_ROTATE_INTERVAL seconds. State lives in the
+# song's pluginData, so it dies with the song.
+sub _armCoverRotation {
+    my ($client, $url, $covers) = @_;
 
-    return unless $track_id;
+    my $song = $client->playingSong() or return $covers->[0];
+
+    my $state = $song->pluginData('staroeCovers');
+    if (!$state || $state->{url} ne $url) {
+        $state = { url => $url, covers => $covers, i => 0 };
+        $song->pluginData('staroeCovers' => $state);
+
+        # Arm the rotation once per song; _rotateCover keeps it going.
+        # setTimer() adds a new timer every call, so arm it only here.
+        Slim::Utils::Timers::killTimers($client, \&_rotateCover);
+        Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + COVER_ROTATE_INTERVAL, \&_rotateCover);
+    }
+
+    return $state->{covers}[$state->{i} % scalar @{$state->{covers}}];
+}
+
+sub _rotateCover {
+    my ($client) = @_;
+
+    # no rotation while paused; also stops the chain when the song is gone
+    return unless $client->isPlaying();
+
+    my $song = $client->playingSong() or return;
+    my $state = $song->pluginData('staroeCovers') or return;
+
+    $state->{i} = ($state->{i} + 1) % scalar @{$state->{covers}};
+    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+    Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + COVER_ROTATE_INTERVAL, \&_rotateCover);
+}
+
+# Live streams show the artwork of the track the station is currently
+# playing, learned by polling getcurrentinfo.php every LIVE_POLL_INTERVAL
+sub _liveMetadata {
+    my ($client, $url) = @_;
+
+    return {} unless $client;
+
+    _armLivePoll($client);
+
+    my $state = $client->pluginData('staroeLive');
+    return {} unless $state && $state->{id};
 
     my $site = $prefs->get('siteSelector') || 'staroeradio.ru';
-    my $page_url = "https://$site/audio/$track_id";
+    my $meta = _getMeta($site, $state->{id});
+    if (!defined $meta) {
+        # Page not parsed yet - fetch it; newmetadata will fire on completion
+        _fetchTrackCover($client, $site, $state->{id});
+        return {};
+    }
+
+    my %out;
+    my $cover = $meta->{cover};
+    # Rotation key includes the track id: live songs persist across tracks
+    my $rot_key = "$url#$state->{id}";
+    if ($meta->{covers} && @{$meta->{covers}} > 1) {
+        $cover = _armCoverRotation($client, $rot_key, $meta->{covers});
+    }
+    $out{cover} = $out{icon} = $cover if $cover;
+    $out{title}  = $meta->{title}  if $meta->{title};
+    $out{artist} = $meta->{artist} if $meta->{artist};
+    return \%out;
+}
+
+sub _armLivePoll {
+    my ($client) = @_;
+
+    return if $client->pluginData('staroeLivePoll');
+    $log->debug("Live metadata requested - arming poller");
+    $client->pluginData('staroeLivePoll' => 1);
+    Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 2, \&_livePoll);
+}
+
+sub _livePoll {
+    my ($client) = @_;
+
+    $client->pluginData('staroeLivePoll' => undef);
+
+    # Keep the chain while a song is loaded - the client may still be
+    # connecting (and thus not "playing") when the first poll fires
+    my $song = $client->playingSong() or return;
+
+    $client->pluginData('staroeLivePoll' => 1);
+
+    my $url = eval { $song->currentTrack->url } || '';
+    my $section = _liveSection($url);
+
+    $log->debug("Live poll: url=$url section=", $section // 'undef');
+
+    if (!$section) {
+        # Not a live stream after all - poll again in case the URL resolves later
+        Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + LIVE_POLL_INTERVAL, \&_livePoll);
+        return;
+    }
 
     Slim::Networking::SimpleAsyncHTTP->new(
         sub {
             my $http = shift;
-            my $cover = _parseCoverFromPage($http->content, $site);
+            my ($id) = $http->content =~ /<$section><id>(\d+)<\/id>/;
+            $log->debug("Live poll: current id=", $id // 'not found');
+            _onLiveInfo($client, $id) if $id;
+        },
+        sub {
+            $log->debug("Live poll: fetch failed");
+            # ignore fetch errors, just keep polling
+        },
+        { timeout => HTTP_TIMEOUT },
+    )->get("http://" . _apiServer() . "/getcurrentinfo.php");
 
-            if ($cover) {
-                _storeCover($track_id, $cover);
-                $log->debug("Cover for track $track_id: $cover");
+    Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + LIVE_POLL_INTERVAL, \&_livePoll);
+}
 
-                if ($client && $client->playingSong()) {
-                    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-                }
+sub _onLiveInfo {
+    my ($client, $id) = @_;
+
+    my $state = $client->pluginData('staroeLive') || {};
+    if ($state->{id} == $id) {
+        $log->debug("Live: id $id unchanged");
+        return;   # nothing changed since the last poll
+    }
+
+    $log->debug("Live: track changed to id $id");
+    $client->pluginData('staroeLive' => { id => $id });
+
+    my $site = $prefs->get('siteSelector') || 'staroeradio.ru';
+    my $meta = _getMeta($site, $id);
+    _fetchTrackCover($client, $site, $id) unless defined $meta;
+
+    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+}
+
+# Track ids with a page fetch in progress
+my %fetchingCover;
+
+# Fetch the track page and store cover + title/artist from it
+sub _fetchTrackCover {
+    my ($client, $site, $track_id) = @_;
+
+    return unless $site && $track_id;
+
+    my $key = "$site/$track_id";
+    return if $fetchingCover{$key} || defined _getMeta($site, $track_id);
+    $fetchingCover{$key} = 1;
+
+    my $page_url = "https://$site/audio/$track_id";
+
+    my $done = sub { delete $fetchingCover{$key} };
+
+    Slim::Networking::SimpleAsyncHTTP->new(
+        sub {
+            my $http = shift;
+            my $meta = _parseTrackPage($http->content, $site);
+
+            if ($meta && %$meta) {
+                _storeMeta($site, $track_id, $meta);
+                $log->debug("Meta for track $track_id: ", join ', ',
+                    map { "$_=" . ($meta->{$_} // '') } sort keys %$meta);
             }
             else {
-                $log->warn("No images found on track page $page_url");
+                # Remember the absence so the page is not re-parsed on every request
+                _cache()->set("staroe_meta_$site/$track_id", '', '1 day');
+                $log->warn("No usable data on track page $page_url");
+            }
+
+            $done->();
+            if ($client && $client->playingSong()) {
+                Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
             }
         },
         sub {
             $log->warn("Failed to fetch track page $page_url for cover art");
+            $done->();
         },
         {
             timeout => HTTP_TIMEOUT,
@@ -337,13 +554,17 @@ sub _fetchTrackCover {
     )->get($page_url);
 }
 
-# Parse the first cover image URL out of a track page. Images live in
+# Parse a track page into { cover, covers, title, artist }. Images live in
 # <div class="images"><a href="BIG.jpg"><img src="SMALLs.jpg"></a>...</div>;
-# prefer the big image linked in href, fall back to the thumbnail.
-sub _parseCoverFromPage {
+# all of them are collected (big linked images first, thumbnail fallbacks
+# after) so they can be rotated during playback. The name is in <h1> or
+# <title> and is always proper UTF-8, unlike the file's ID3 tags.
+sub _parseTrackPage {
     my ($html, $site) = @_;
 
     return undef unless defined $html;
+
+    my %meta;
 
     my $p = HTML::TokeParser->new(\$html) or return undef;
 
@@ -351,13 +572,14 @@ sub _parseCoverFromPage {
         my $class = $token->[1]{class} || '';
         next unless $class eq 'images';
 
+        my (@big, @small);
         while (my $inner = $p->get_token) {
             last if $inner->[0] eq 'E' && $inner->[1] eq 'div';
 
             if ($inner->[0] eq 'S' && $inner->[1] eq 'a') {
                 my $href = $inner->[2]{href};
                 if ($href && $href =~ /\.(?:jpe?g|png|gif)$/i) {
-                    return _absoluteImageUrl($href, $site);
+                    push @big, _absoluteImageUrl($href, $site);
                 }
             }
 
@@ -366,13 +588,50 @@ sub _parseCoverFromPage {
                 if ($src && $src =~ /\.(?:jpe?g|png|gif)$/i) {
                     # Thumbnails carry a trailing "s" before the extension
                     $src =~ s/s(\.(?:jpe?g|png|gif))$/$1/i;
-                    return _absoluteImageUrl($src, $site);
+                    push @small, _absoluteImageUrl($src, $site);
                 }
             }
         }
+
+        my %seen;
+        my @covers = grep { !$seen{$_}++ } (@big ? @big : @small);
+        $meta{covers} = \@covers if @covers;
+        last;
     }
 
-    return undef;
+    $meta{cover} = $meta{covers}[0] if $meta{covers};
+    # Name comes from <h1> (clean, no site suffix), <title> is the fallback.
+    # The artist is the leading "Artist - " part; some sites (theatrologia)
+    # put it only in <title>, so fall back to that.
+    my $title_text;
+    if ($html =~ m{<title>([^<]+)</title>}) {
+        my $raw = decode_entities($1);
+        $title_text = eval { decode('UTF-8', $raw) } || $raw;
+        $title_text =~ s/\s*\|\s*[^|]*$//;   # drop the trailing " | Лекториум" etc.
+        $title_text =~ s/^\s+|\s+$//g;
+    }
+    my $name;
+    if ($html =~ m{<h1[^>]*>([^<]+)</h1>}) {
+        my $raw = decode_entities($1);
+        $name = eval { decode('UTF-8', $raw) } || $raw;
+        $name =~ s/^\s+|\s+$//g;
+    }
+    $name = $title_text unless $name;
+
+    if ($name) {
+        if ($name =~ s/^(.+?)\s+-\s+//) {
+            $meta{artist} = $1;
+        }
+        elsif ($title_text && $title_text =~ s/^(.+?)\s+-\s+//) {
+            $meta{artist} = $1;
+        }
+        else {
+            $meta{artist} = _siteName($site);
+        }
+        $meta{title} = $name;
+    }
+
+    return \%meta;
 }
 
 sub _absoluteImageUrl {
@@ -502,40 +761,24 @@ sub _parseSearchResults {
         $title = decode('UTF-8', $title);
 
         my $stream_url = $base_url . $track_id;
-        my $cover = _getCoverFromCache($track_id);
+        my $meta = _getMeta($host, $track_id);
+        my $cover = $meta ? $meta->{cover} : undef;
 
         push @results, {
             name        => $title,
             title       => $title,
-            artist      => 'Старое радио',
+            artist      => _siteName($host),
             play        => $stream_url,
             url         => $stream_url,
             type        => 'audio',
             duration    => 0,
             image       => $cover || "plugins/Staroe/html/images/foundbroadcast2_svg.png",
             description => "Аудиозапись с $host",
-            on_play     => sub {
-                my $client = shift or return;
-                $client->streamingSong({ isLive => 0 });
-                _fetchTrackCover($client, $track_id);
-                Slim::Utils::Timers::setTimer(undef, Time::HiRes::time() + 1.0, sub {
-                    my $song = $client->playingSong() or return;
-                    $song->title($title);
-                    $song->artist('Старое радио');
-                    $song->album('Архив передач');
-                    $client->currentSong()->title($title);
-                    $client->currentSong()->artist('Старое радио');
-                    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
-                });
-            },
         };
     }
 
     return @results;
 }
-
-
-
 
 # Always end with a 1 to make Perl happy
 1;
