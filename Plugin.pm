@@ -134,8 +134,15 @@ sub initPlugin {
     # (get_mp3...) and live streams (the m3u resolves to ...:8000/ices128 etc.)
     require Slim::Formats::RemoteMetadata;
     Slim::Formats::RemoteMetadata->registerProvider(
-        match => qr{/get_mp3|/(?:ices|detskoe|music)\d*(?:\.m3u)?$},
+        match => qr{/get_mp3|/(?:ices|detskoe)\d*(?:\.m3u)?$},
         func  => \&_metadataProvider,
+    );
+
+    # Kick off live-stream polling as soon as a live stream starts playing
+    # (the metadata provider alone is not reliably consulted for radio streams)
+    Slim::Control::Request::subscribe(
+        \&_onPlaylistEvent,
+        [['playlist'], ['play', 'open', 'newsong']],
     );
 
     # Pre-load channels
@@ -156,10 +163,11 @@ sub initPlugin {
 
 }
 
-sub isRemote { 1 }    
+sub isRemote { 1 }
 # Called when the plugin is stopped
 sub shutdownPlugin {
     my $class = shift;
+    Slim::Control::Request::unsubscribe(\&_onPlaylistEvent);
 }
 
 # Returns the name to display on the squeezebox
@@ -305,7 +313,7 @@ sub _apiServer {
 
 sub _isLiveUrl {
     my ($url) = @_;
-    return $url =~ m{/(?:ices|detskoe|music)\d*(?:\.m3u)?$}i;
+    return $url =~ m{/(?:ices|detskoe)\d*(?:\.m3u)?$}i;
 }
 
 # Which section of the getcurrentinfo.php answer corresponds to this stream
@@ -405,16 +413,99 @@ sub _rotateCover {
 }
 
 # Live streams show the artwork of the track the station is currently
-# playing, learned by polling getcurrentinfo.php every LIVE_POLL_INTERVAL
+# playing, learned by polling getcurrentinfo.php every LIVE_POLL_INTERVAL.
+# Playlist events drive the whole machinery: a live stream gets an immediate
+# getcurrentinfo query; archive tracks, other apps and the local library
+# switch the polling off.
+sub _onPlaylistEvent {
+    my $request = shift;
+    my $client = $request->client or return;
+
+    # The song (and its final URL) may not be ready the instant the event
+    # fires - an m3u playlist is still being resolved into the real stream
+    # URL. Retry a few times before giving up; if all retries see nothing,
+    # the next event (or a still-running poll chain) catches up.
+    my $attempt = 0;
+    my $check;
+    $check = sub {
+        my $song = $client->playingSong();
+
+        if (!$song) {
+            _stopLivePoll($client);
+            return;
+        }
+
+        my $url = eval { $song->currentTrack->url } || '';
+
+        if (_isLiveUrl($url)) {
+            # New live song (or stream switch): forget the previous track id
+            # and rotation, then query getcurrentinfo right away
+            my $song_key = "$song";
+            if (($client->pluginData('staroeLiveSong') || '') ne $song_key) {
+                $log->debug("Live: new live song $song_key url=$url");
+                $client->pluginData('staroeLiveSong' => $song_key);
+                $client->pluginData('staroeLive'     => undef);
+                $client->pluginData('staroeLivePoll' => undef);
+                Slim::Utils::Timers::killTimers($client, \&_livePoll);
+            }
+            _armLivePoll($client);
+        }
+        elsif (_isArchiveUrl($url)) {
+            # Archive tracks get cover/title from the metadata provider
+            $log->debug("Live: archive track $url - polling off");
+            _stopLivePoll($client);
+        }
+        elsif ($url ne '') {
+            # Another app (deezer, yandex, ...) or the local library
+            $log->debug("Live: foreign content $url - polling off");
+            _stopLivePoll($client);
+        }
+        elsif ($attempt++ < 3) {
+            Slim::Utils::Timers::setTimer($client,
+                Time::HiRes::time() + (0.5, 2, 5)[$attempt - 1], $check);
+        }
+    };
+    $check->();
+}
+
+# Stop the live poll chain and forget the per-client live state
+sub _stopLivePoll {
+    my ($client) = @_;
+
+    Slim::Utils::Timers::killTimers($client, \&_livePoll);
+    $client->pluginData('staroeLivePoll' => undef);
+    $client->pluginData('staroeLive'     => undef);
+    $client->pluginData('staroeLiveSong' => undef);
+}
+
+sub _isArchiveUrl {
+    my ($url) = @_;
+    return $url =~ m{/get_mp3};
+}
+
 sub _liveMetadata {
     my ($client, $url) = @_;
 
     return {} unless $client;
+    my $song = $client->playingSong() or return {};
+
+    # On song (or stream switch) reset the poll state so the currently
+    # playing track is queried right away
+    my $song_key = "$song";
+    if (($client->pluginData('staroeLiveSong') || '') ne $song_key) {
+        $client->pluginData('staroeLiveSong' => $song_key);
+        $client->pluginData('staroeLive' => undef);
+        $client->pluginData('staroeLivePoll' => undef);
+        Slim::Utils::Timers::killTimers($client, \&_livePoll);
+    }
 
     _armLivePoll($client);
 
     my $state = $client->pluginData('staroeLive');
-    return {} unless $state && $state->{id};
+    if (!$state || !$state->{id}) {
+        $log->debug("Live: provider asked, no track id yet");
+        return {};
+    }
 
     my $site = $prefs->get('siteSelector') || 'staroeradio.ru';
     my $meta = _getMeta($site, $state->{id});
@@ -441,9 +532,9 @@ sub _armLivePoll {
     my ($client) = @_;
 
     return if $client->pluginData('staroeLivePoll');
-    $log->debug("Live metadata requested - arming poller");
+    $log->debug("Live metadata requested - polling now");
     $client->pluginData('staroeLivePoll' => 1);
-    Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + 2, \&_livePoll);
+    Slim::Utils::Timers::setTimer($client, Time::HiRes::time(), \&_livePoll);
 }
 
 sub _livePoll {
@@ -451,20 +542,37 @@ sub _livePoll {
 
     $client->pluginData('staroeLivePoll' => undef);
 
-    # Keep the chain while a song is loaded - the client may still be
-    # connecting (and thus not "playing") when the first poll fires
     my $song = $client->playingSong() or return;
+
+    my $url = eval { $song->currentTrack->url } || '';
+
+    # Anything but our live stream stops the chain for good; it is re-armed
+    # by the playlist event handler when a live stream starts again
+    if (!_isLiveUrl($url)) {
+        $log->debug("Live poll: url=$url is not live - polling off");
+        _stopLivePoll($client);
+        return;
+    }
+
+    # The playlist event may have been missed: reset the per-song state when
+    # the song object changed, so a stale track id (and its cover) never
+    # outlives a stream switch
+    my $song_key = "$song";
+    if (($client->pluginData('staroeLiveSong') || '') ne $song_key) {
+        $log->debug("Live poll: song changed to $song_key - resetting state");
+        $client->pluginData('staroeLiveSong' => $song_key);
+        $client->pluginData('staroeLive'     => undef);
+    }
 
     $client->pluginData('staroeLivePoll' => 1);
 
-    my $url = eval { $song->currentTrack->url } || '';
     my $section = _liveSection($url);
-
     $log->debug("Live poll: url=$url section=", $section // 'undef');
 
+    # Every URL accepted by _isLiveUrl has a section; guard anyway so an
+    # unknown stream name can never leak into the XML regex below
     if (!$section) {
-        # Not a live stream after all - poll again in case the URL resolves later
-        Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + LIVE_POLL_INTERVAL, \&_livePoll);
+        _stopLivePoll($client);
         return;
     }
 
@@ -473,7 +581,7 @@ sub _livePoll {
             my $http = shift;
             my ($id) = $http->content =~ /<$section><id>(\d+)<\/id>/;
             $log->debug("Live poll: current id=", $id // 'not found');
-            _onLiveInfo($client, $id) if $id;
+            _onLiveInfo($client, $id, $url) if $id;
         },
         sub {
             $log->debug("Live poll: fetch failed");
@@ -486,12 +594,14 @@ sub _livePoll {
 }
 
 sub _onLiveInfo {
-    my ($client, $id) = @_;
+    my ($client, $id, $url) = @_;
 
     my $state = $client->pluginData('staroeLive') || {};
     if ($state->{id} == $id) {
-        $log->debug("Live: id $id unchanged");
-        return;   # nothing changed since the last poll
+        # Same track as before - just rotate/refresh its cover
+        $log->debug("Live: id $id unchanged, refreshing cover");
+        _applyLiveCover($client, $url, $id);
+        return;
     }
 
     $log->debug("Live: track changed to id $id");
@@ -499,7 +609,64 @@ sub _onLiveInfo {
 
     my $site = $prefs->get('siteSelector') || 'staroeradio.ru';
     my $meta = _getMeta($site, $id);
-    _fetchTrackCover($client, $site, $id) unless defined $meta;
+    if (defined $meta) {
+        _applyLiveCover($client, $url, $id, $meta);
+    }
+    else {
+        # Page not parsed yet - fetch it, the callback applies the cover
+        _fetchTrackCover($client, $site, $id, sub {
+            _applyLiveCover($client, $url, $id, $_[0]);
+        });
+    }
+}
+
+# Push the current cover of the live stream the same way the core radio
+# artwork machinery does (song pluginData + remote_image cache) and refresh
+# the display. With multiple covers each call advances by one, i.e. they
+# rotate per poll cycle. A track whose page has no images clears the cover.
+sub _applyLiveCover {
+    my ($client, $url, $id, $meta) = @_;
+
+    # undef $meta: look the track up; '' means "page known to have nothing"
+    $meta = _getMeta($prefs->get('siteSelector') || 'staroeradio.ru', $id)
+        unless defined $meta;
+
+    if (!defined $meta) {
+        $log->debug("Live: no meta for id $id yet");
+        return;
+    }
+
+    # '' (page known empty) or a hashref without covers both end up here
+    my @covers = (ref $meta && $meta->{covers}) ? @{$meta->{covers}} : ();
+    if (!@covers) {
+        # The new track's page has no images: drop whatever cover is still
+        # showing from the previous track
+        $log->debug("Live: id $id has no covers - clearing current cover");
+        my $song = $client->playingSong();
+        if ($song) {
+            $song->pluginData( httpCover => undef );
+            $song->pluginData( wmaMeta   => undef );
+        }
+        _cache()->remove("remote_image_$url");
+        Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
+        return;
+    }
+
+    my $state = $client->pluginData('staroeLive') || {};
+    my $i = $state->{"idx_$id"} || 0;
+    my $cover = $covers[$i % scalar @covers];
+    $state->{"idx_$id"} = ($i + 1) % scalar @covers;
+    $client->pluginData('staroeLive' => $state);
+
+    my $song = $client->playingSong();
+    if ($song) {
+        # this is what Slim::Plugin::RadioArtwork does to update a playing radio stream
+        $song->pluginData( httpCover => $cover );
+        $song->pluginData( wmaMeta   => { cover => $cover, icon => $cover } );
+    }
+
+    _cache()->set("remote_image_$url", $cover, '1 hour');
+    $log->debug("Live: cover for id $id (index $i) -> $cover");
 
     Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
 }
@@ -507,14 +674,22 @@ sub _onLiveInfo {
 # Track ids with a page fetch in progress
 my %fetchingCover;
 
-# Fetch the track page and store cover + title/artist from it
+# Fetch the track page and store cover + title/artist from it.
+# Optional $cb is called with the parsed meta once it is available.
 sub _fetchTrackCover {
-    my ($client, $site, $track_id) = @_;
+    my ($client, $site, $track_id, $cb) = @_;
 
     return unless $site && $track_id;
 
     my $key = "$site/$track_id";
-    return if $fetchingCover{$key} || defined _getMeta($site, $track_id);
+
+    my $cached = _getMeta($site, $track_id);
+    if (defined $cached) {
+        $cb->($cached) if $cb && ref $cached;
+        return;
+    }
+
+    return if $fetchingCover{$key};
     $fetchingCover{$key} = 1;
 
     my $page_url = "https://$site/audio/$track_id";
@@ -530,11 +705,14 @@ sub _fetchTrackCover {
                 _storeMeta($site, $track_id, $meta);
                 $log->debug("Meta for track $track_id: ", join ', ',
                     map { "$_=" . ($meta->{$_} // '') } sort keys %$meta);
+                $cb->($meta) if $cb;
             }
             else {
                 # Remember the absence so the page is not re-parsed on every request
                 _cache()->set("staroe_meta_$site/$track_id", '', '1 day');
                 $log->warn("No usable data on track page $page_url");
+                # '' tells the caller the page is known to be empty
+                $cb->('') if $cb;
             }
 
             $done->();
