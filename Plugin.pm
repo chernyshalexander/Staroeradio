@@ -51,6 +51,11 @@ use constant COVER_CACHE_EXPIRES => '30 days';
 use constant COVER_ROTATE_INTERVAL => 30;   # seconds between covers of one track
 use constant LIVE_POLL_INTERVAL => 30;      # seconds between getcurrentinfo.php polls
 
+# Vintage Music has no per-track pages and no artwork: pin a fixed name and
+# the channel's own menu image instead of whatever the stream carries
+use constant MUSIC_TITLE => 'Старое радио музыка';
+use constant MUSIC_COVER => 'plugins/Staroe/html/images/oldradiomusic_svg.png';
+
 use constant HOST_CONFIG => {
     # su-домены → audiopedia.su
     'svidetel\.su'        => { host => 'svidetel.su',        name => 'Свидетель',   base => 'http://server.audiopedia.su:8888/get_mp3_project_1.php?site=svidetel&id=' },
@@ -134,7 +139,7 @@ sub initPlugin {
     # (get_mp3...) and live streams (the m3u resolves to ...:8000/ices128 etc.)
     require Slim::Formats::RemoteMetadata;
     Slim::Formats::RemoteMetadata->registerProvider(
-        match => qr{/get_mp3|/(?:ices|detskoe)\d*(?:\.m3u)?$},
+        match => qr{/get_mp3|/(?:ices|detskoe|music)\d*(?:\.m3u)?$},
         func  => \&_metadataProvider,
     );
 
@@ -144,6 +149,13 @@ sub initPlugin {
         \&_onPlaylistEvent,
         [['playlist'], ['play', 'open', 'newsong']],
     );
+
+    # Track Info ("i" in the player, context menu): show the broadcast
+    # annotation from getMetaInfo "text" - Material Skin, SqueezePlay, web
+    require Slim::Menu::TrackInfo;
+    Slim::Menu::TrackInfo->registerInfoProvider( annotation => (
+        func => \&_trackAnnotation,
+    ) );
 
     # Pre-load channels
     my $file = File::Spec->catfile($pluginDir, 'channels.json');
@@ -316,12 +328,27 @@ sub _isLiveUrl {
     return $url =~ m{/(?:ices|detskoe)\d*(?:\.m3u)?$}i;
 }
 
+# Vintage Music stream (no getcurrentinfo section, no track pages)
+sub _isMusicUrl {
+    my ($url) = @_;
+    return $url =~ m{/music\d*(?:\.m3u)?$}i;
+}
+
 # Which section of the getcurrentinfo.php answer corresponds to this stream
 sub _liveSection {
     my ($url) = @_;
     return $url =~ m{/detskoe}i ? 'detskoeradio'
          : $url =~ m{/ices}i    ? 'staroeradio'
          :                        undef;
+}
+
+# Stream identity ("ices128", "detskoe64", ...) shared by the .m3u item URL
+# and the resolved inner URL. LMS calls the metadata provider with one form
+# and polls the other - a raw URL key would flip on every provider query and
+# reset the whole state in a loop.
+sub _liveStreamId {
+    my ($url) = @_;
+    return $url =~ m{/((?:ices|detskoe|music)\d*)(?:\.m3u)?$}i ? $1 : '';
 }
 
 # Shared persistent cache instance
@@ -352,6 +379,7 @@ sub _storeMeta {
 sub _metadataProvider {
     my ($client, $url) = @_;
 
+    return _musicMetadata() if _isMusicUrl($url);
     return _liveMetadata($client, $url) if _isLiveUrl($url);
 
     my $track_id = _trackIdFromUrl($url) or return {};
@@ -374,6 +402,17 @@ sub _metadataProvider {
     $out{title}  = $meta->{title}  if $meta->{title};
     $out{artist} = $meta->{artist} if $meta->{artist};
     return \%out;
+}
+
+# Vintage Music: no per-track pages or artwork - a fixed name and the
+# channel artwork, overriding whatever the stream itself carries
+sub _musicMetadata {
+    return {
+        title  => MUSIC_TITLE,
+        artist => 'Старое радио',
+        cover  => MUSIC_COVER,
+        icon   => MUSIC_COVER,
+    };
 }
 
 # Cycle through multiple covers of the playing track: pick the current one
@@ -414,9 +453,9 @@ sub _rotateCover {
 
 # Live streams show the artwork of the track the station is currently
 # playing, learned by polling getcurrentinfo.php every LIVE_POLL_INTERVAL.
-# Playlist events drive the whole machinery: a live stream gets an immediate
-# getcurrentinfo query; archive tracks, other apps and the local library
-# switch the polling off.
+# Playlist events give an immediate reaction; for everything else the chain
+# just idles - it never dies, so a switch back to a live stream is always
+# picked up within one interval even if the event was missed.
 sub _onPlaylistEvent {
     my $request = shift;
     my $client = $request->client or return;
@@ -424,58 +463,93 @@ sub _onPlaylistEvent {
     # The song (and its final URL) may not be ready the instant the event
     # fires - an m3u playlist is still being resolved into the real stream
     # URL. Retry a few times before giving up; if all retries see nothing,
-    # the next event (or a still-running poll chain) catches up.
+    # the still-running poll chain catches up.
     my $attempt = 0;
     my $check;
     $check = sub {
         my $song = $client->playingSong();
 
         if (!$song) {
-            _stopLivePoll($client);
+            _idleLiveState($client);
             return;
         }
 
         my $url = eval { $song->currentTrack->url } || '';
 
         if (_isLiveUrl($url)) {
-            # New live song (or stream switch): forget the previous track id
-            # and rotation, then query getcurrentinfo right away
-            my $song_key = "$song";
-            if (($client->pluginData('staroeLiveSong') || '') ne $song_key) {
-                $log->debug("Live: new live song $song_key url=$url");
-                $client->pluginData('staroeLiveSong' => $song_key);
-                $client->pluginData('staroeLive'     => undef);
-                $client->pluginData('staroeLivePoll' => undef);
+            # New live song - or a stream switch within the same song: LMS
+            # reuses the song object when one radio stream replaces another,
+            # so the key must include the URL, not just the song itself
+            my $key = "$song|" . (_liveStreamId($url) || $url);
+            if (($client->pluginData('staroeLiveSong') || '') ne $key) {
+                $log->debug("Live: new live stream $key");
+                $client->pluginData('staroeLiveSong' => $key);
+                $client->pluginData('staroeLive' => '');
+                $client->pluginData('staroeLivePoll' => '');
                 Slim::Utils::Timers::killTimers($client, \&_livePoll);
             }
             _armLivePoll($client);
         }
+        elsif (_isMusicUrl($url)) {
+            # No polling for this channel, but the default cover must be
+            # pushed through the same channels as live covers, otherwise the
+            # artwork of the previously played channel stays on screen
+            $log->debug("Live: music channel $url - default cover, polling idle");
+            _idleLiveState($client);
+            _applyMusicCover($client, $url);
+        }
         elsif (_isArchiveUrl($url)) {
             # Archive tracks get cover/title from the metadata provider
-            $log->debug("Live: archive track $url - polling off");
-            _stopLivePoll($client);
+            $log->debug("Live: archive track $url - polling idle");
+            _idleLiveState($client);
         }
         elsif ($url ne '') {
             # Another app (deezer, yandex, ...) or the local library
-            $log->debug("Live: foreign content $url - polling off");
-            _stopLivePoll($client);
+            $log->debug("Live: foreign content $url - polling idle");
+            _idleLiveState($client);
         }
         elsif ($attempt++ < 3) {
             Slim::Utils::Timers::setTimer($client,
                 Time::HiRes::time() + (0.5, 2, 5)[$attempt - 1], $check);
         }
+        else {
+            $log->debug("Live: playlist event without a song URL - giving up");
+        }
     };
     $check->();
 }
 
-# Stop the live poll chain and forget the per-client live state
-sub _stopLivePoll {
+# Clear the live track state. The poll chain itself keeps running quietly
+# (see _livePoll): killing it on a non-live URL would freeze the displayed
+# cover forever, because playlist events turned out to be unreliable.
+sub _idleLiveState {
     my ($client) = @_;
 
-    Slim::Utils::Timers::killTimers($client, \&_livePoll);
-    $client->pluginData('staroeLivePoll' => undef);
-    $client->pluginData('staroeLive'     => undef);
-    $client->pluginData('staroeLiveSong' => undef);
+    $client->pluginData('staroeLive' => '');
+    $client->pluginData('staroeLiveSong' => '');
+}
+
+# Pin the fixed Vintage Music name and cover on the playing song. Applied
+# once per song: events can fire several times for the same stream, and
+# each apply triggers a UI refresh.
+sub _applyMusicCover {
+    my ($client, $url) = @_;
+
+    my $song = $client->playingSong() or return;
+    my $song_key = "$song";
+    return if ($client->pluginData('staroeMusicSong') || '') eq $song_key;
+    $client->pluginData('staroeMusicSong' => $song_key);
+
+    $song->pluginData( httpCover => MUSIC_COVER );
+    # title/artist go along so the wmaMeta result never blanks the track name
+    $song->pluginData( wmaMeta   => {
+        cover  => MUSIC_COVER,
+        icon   => MUSIC_COVER,
+        title  => MUSIC_TITLE,
+        artist => 'Старое радио',
+    } );
+    _cache()->set("remote_image_$url", MUSIC_COVER, '1 hour');
+    Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
 }
 
 sub _isArchiveUrl {
@@ -490,12 +564,13 @@ sub _liveMetadata {
     my $song = $client->playingSong() or return {};
 
     # On song (or stream switch) reset the poll state so the currently
-    # playing track is queried right away
-    my $song_key = "$song";
-    if (($client->pluginData('staroeLiveSong') || '') ne $song_key) {
-        $client->pluginData('staroeLiveSong' => $song_key);
-        $client->pluginData('staroeLive' => undef);
-        $client->pluginData('staroeLivePoll' => undef);
+    # playing track is queried right away. The key includes the URL: LMS
+    # reuses the song object when one radio stream replaces another.
+    my $key = "$song|" . (_liveStreamId($url) || $url);
+    if (($client->pluginData('staroeLiveSong') || '') ne $key) {
+        $client->pluginData('staroeLiveSong' => $key);
+        $client->pluginData('staroeLive' => '');
+        $client->pluginData('staroeLivePoll' => '');
         Slim::Utils::Timers::killTimers($client, \&_livePoll);
     }
 
@@ -511,17 +586,15 @@ sub _liveMetadata {
     my $meta = _getMeta($site, $state->{id});
     if (!defined $meta) {
         # Page not parsed yet - fetch it; newmetadata will fire on completion
-        _fetchTrackCover($client, $site, $state->{id});
+        _fetchLiveMeta($client, $site, $state->{id});
         return {};
     }
 
     my %out;
-    my $cover = $meta->{cover};
-    # Rotation key includes the track id: live songs persist across tracks
-    my $rot_key = "$url#$state->{id}";
-    if ($meta->{covers} && @{$meta->{covers}} > 1) {
-        $cover = _armCoverRotation($client, $rot_key, $meta->{covers});
-    }
+    # Serve exactly the cover the poll chain put on screen (state has the
+    # current one of possibly several page images); rotation is driven by
+    # the poll cycle only, so the two delivery channels never disagree
+    my $cover = $state->{current_cover} || $meta->{cover};
     $out{cover} = $out{icon} = $cover if $cover;
     $out{title}  = $meta->{title}  if $meta->{title};
     $out{artist} = $meta->{artist} if $meta->{artist};
@@ -540,28 +613,31 @@ sub _armLivePoll {
 sub _livePoll {
     my ($client) = @_;
 
-    $client->pluginData('staroeLivePoll' => undef);
+    $client->pluginData('staroeLivePoll' => '');
 
-    my $song = $client->playingSong() or return;
+    my $song = $client->playingSong();
+    my $url = $song ? (eval { $song->currentTrack->url } || '') : '';
 
-    my $url = eval { $song->currentTrack->url } || '';
-
-    # Anything but our live stream stops the chain for good; it is re-armed
-    # by the playlist event handler when a live stream starts again
+    # Anything but our live stream (archive track, another app, local
+    # library, or nothing playing at all): keep the chain alive but idle -
+    # no requests, no log noise. Killing it here would freeze covers on
+    # stream switches, since playlist events turned out to be unreliable.
+    # An empty URL means the m3u is still resolving - retry soon.
     if (!_isLiveUrl($url)) {
-        $log->debug("Live poll: url=$url is not live - polling off");
-        _stopLivePoll($client);
+        my $delay = $url eq '' ? 2 : LIVE_POLL_INTERVAL;
+        Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + $delay, \&_livePoll);
         return;
     }
 
-    # The playlist event may have been missed: reset the per-song state when
-    # the song object changed, so a stale track id (and its cover) never
-    # outlives a stream switch
-    my $song_key = "$song";
-    if (($client->pluginData('staroeLiveSong') || '') ne $song_key) {
-        $log->debug("Live poll: song changed to $song_key - resetting state");
-        $client->pluginData('staroeLiveSong' => $song_key);
-        $client->pluginData('staroeLive'     => undef);
+    # The playlist event may have been missed: LMS reuses the song object
+    # when one radio stream replaces another, so the key includes the URL -
+    # a changed key means the previous track id (and its cover) must not
+    # outlive the switch
+    my $key = "$song|" . (_liveStreamId($url) || $url);
+    if (($client->pluginData('staroeLiveSong') || '') ne $key) {
+        $log->debug("Live poll: new live stream $key");
+        $client->pluginData('staroeLiveSong' => $key);
+        $client->pluginData('staroeLive' => '');
     }
 
     $client->pluginData('staroeLivePoll' => 1);
@@ -572,7 +648,7 @@ sub _livePoll {
     # Every URL accepted by _isLiveUrl has a section; guard anyway so an
     # unknown stream name can never leak into the XML regex below
     if (!$section) {
-        _stopLivePoll($client);
+        Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + LIVE_POLL_INTERVAL, \&_livePoll);
         return;
     }
 
@@ -591,6 +667,110 @@ sub _livePoll {
     )->get("http://" . _apiServer() . "/getcurrentinfo.php");
 
     Slim::Utils::Timers::setTimer($client, Time::HiRes::time() + LIVE_POLL_INTERVAL, \&_livePoll);
+}
+
+# Live streams: covers come straight from getMetaInfo (fast, independent of
+# the page layout), the track page then adds title/artist. API covers win
+# over the page ones; the page-only path stays for archive tracks.
+sub _fetchLiveMeta {
+    my ($client, $site, $track_id, $cb) = @_;
+
+    Slim::Networking::SimpleAsyncHTTP->new(
+        sub {
+            my $http = shift;
+            my $covers = _parseApiCovers($http->content);
+            $log->debug("Live: API covers for $track_id: ", scalar @$covers);
+            _fetchTrackCover($client, $site, $track_id, $cb, $covers);
+        },
+        sub {
+            $log->debug("Live: API meta fetch failed - page covers only");
+            _fetchTrackCover($client, $site, $track_id, $cb);
+        },
+        { timeout => HTTP_TIMEOUT },
+    )->get("http://" . _apiServer() . "/getradioinfo.php?cmd=getMetaInfo&trackID=$track_id");
+}
+
+# getMetaInfo answer: {"Metainfo":{"text":"...","images":["http://...", ...]}}
+sub _parseApiCovers {
+    my ($json) = @_;
+
+    return [] unless defined $json;
+    my $data = eval { from_json($json) } || return [];
+    my @covers;
+    for my $img (@{$data->{Metainfo}->{images} || []}) {
+        next unless $img && $img =~ m{^https?://}i;
+        # Images carry the API host - rebuild the URL on our API server so
+        # world listeners get them from the reachable host as well
+        (my $u = $img) =~ s{^(\w+://)[^/]+/}{$1 . _apiServer() . '/'}e;
+        push @covers, $u;
+    }
+    return \@covers;
+}
+
+# Track Info ("i" / context menu): one menu entry per playing Staroe track.
+# For live streams the track id lives in the poll state (stream URLs don't
+# carry it), for archive tracks it comes straight from the URL.
+sub _trackAnnotation {
+    my ($client, $url, $obj, $remoteMeta) = @_;
+
+    my ($track_id, $site);
+
+    if (my $state = $client ? $client->pluginData('staroeLive') : undef) {
+        $track_id = $state->{id};
+        $site     = $prefs->get('siteSelector') || 'staroeradio.ru';
+    }
+
+    if (!$track_id) {
+        $track_id = _trackIdFromUrl($url) or return;
+        $site     = _hostFromUrl($url);
+    }
+
+    return {
+        name        => 'Аннотация',
+        type        => 'link',
+        url         => \&_annotationItems,
+        passthrough => [ { site => $site, id => $track_id } ],
+    };
+}
+
+# Called when the user selects "Аннотация": one getMetaInfo request, the
+# text is rendered as a text area (Material Skin, SqueezePlay, web). The
+# text is cached alongside the other track meta.
+sub _annotationItems {
+    my ($client, $cb, $params, $args) = @_;
+
+    my $site     = $args->{site};
+    my $track_id = $args->{id};
+
+    Slim::Networking::SimpleAsyncHTTP->new(
+        sub {
+            my $http = shift;
+
+            my $text;
+            if (my $data = eval { from_json($http->content) }) {
+                $text = $data->{Metainfo}{text};
+            }
+
+            if ($text) {
+                # Stash the annotation so the next time it comes from the cache
+                my $meta = _getMeta($site, $track_id) || {};
+                $meta = {} unless ref $meta;
+                $meta->{text} = $text;
+                _storeMeta($site, $track_id, $meta);
+            }
+
+            $cb->({ items => _textAreaItem($text || 'Аннотация недоступна') });
+        },
+        sub {
+            $cb->({ items => _textAreaItem('Аннотация недоступна') });
+        },
+        { timeout => HTTP_TIMEOUT },
+    )->get("http://" . _apiServer() . "/getradioinfo.php?cmd=getMetaInfo&trackID=$track_id");
+}
+
+sub _textAreaItem {
+    my ($text) = @_;
+    return [ { type => 'textarea', name => $text } ];
 }
 
 sub _onLiveInfo {
@@ -614,7 +794,7 @@ sub _onLiveInfo {
     }
     else {
         # Page not parsed yet - fetch it, the callback applies the cover
-        _fetchTrackCover($client, $site, $id, sub {
+        _fetchLiveMeta($client, $site, $id, sub {
             _applyLiveCover($client, $url, $id, $_[0]);
         });
     }
@@ -640,12 +820,13 @@ sub _applyLiveCover {
     my @covers = (ref $meta && $meta->{covers}) ? @{$meta->{covers}} : ();
     if (!@covers) {
         # The new track's page has no images: drop whatever cover is still
-        # showing from the previous track
+        # showing from the previous track. '' not undef - pluginData()
+        # silently ignores assignments of undef!
         $log->debug("Live: id $id has no covers - clearing current cover");
         my $song = $client->playingSong();
         if ($song) {
-            $song->pluginData( httpCover => undef );
-            $song->pluginData( wmaMeta   => undef );
+            $song->pluginData( httpCover => '' );
+            $song->pluginData( wmaMeta   => '' );
         }
         _cache()->remove("remote_image_$url");
         Slim::Control::Request::notifyFromArray($client, ['newmetadata']);
@@ -656,13 +837,24 @@ sub _applyLiveCover {
     my $i = $state->{"idx_$id"} || 0;
     my $cover = $covers[$i % scalar @covers];
     $state->{"idx_$id"} = ($i + 1) % scalar @covers;
+    # Remember what is on screen: the metadata provider serves this exact
+    # cover until the next rotation, so both delivery channels agree
+    $state->{current_cover} = $cover;
     $client->pluginData('staroeLive' => $state);
 
     my $song = $client->playingSong();
     if ($song) {
-        # this is what Slim::Plugin::RadioArtwork does to update a playing radio stream
+        # this is what Slim::Plugin::RadioArtwork does to update a playing
+        # radio stream. title/artist go along: getMetadataFor returns wmaMeta
+        # instead of the provider result when the key exists, and a wmaMeta
+        # without text would wipe the track title down to the station name
         $song->pluginData( httpCover => $cover );
-        $song->pluginData( wmaMeta   => { cover => $cover, icon => $cover } );
+        $song->pluginData( wmaMeta   => {
+            cover  => $cover,
+            icon   => $cover,
+            title  => $meta->{title},
+            artist => $meta->{artist},
+        } );
     }
 
     _cache()->set("remote_image_$url", $cover, '1 hour');
@@ -676,8 +868,10 @@ my %fetchingCover;
 
 # Fetch the track page and store cover + title/artist from it.
 # Optional $cb is called with the parsed meta once it is available.
+# Optional $api_covers (live streams only, see _fetchLiveMeta) override the
+# page images: getMetaInfo is the authoritative cover source for streams.
 sub _fetchTrackCover {
-    my ($client, $site, $track_id, $cb) = @_;
+    my ($client, $site, $track_id, $cb, $api_covers) = @_;
 
     return unless $site && $track_id;
 
@@ -700,6 +894,13 @@ sub _fetchTrackCover {
         sub {
             my $http = shift;
             my $meta = _parseTrackPage($http->content, $site);
+
+            # API covers win over the page ones (live streams only)
+            if ($api_covers && @$api_covers) {
+                $meta = {} unless $meta && %$meta;
+                $meta->{covers} = [@$api_covers];
+                $meta->{cover} ||= $api_covers->[0];
+            }
 
             if ($meta && %$meta) {
                 _storeMeta($site, $track_id, $meta);
@@ -797,16 +998,21 @@ sub _parseTrackPage {
     $name = $title_text unless $name;
 
     if ($name) {
-        if ($name =~ s/^(.+?)\s+-\s+//) {
+        # The whole name is the title: notes like "(Зап.: 1964г.)" belong to
+        # it and wrap to the next line in the UIs - they must stay at the END
+        # of the title, never become a field of their own
+        $meta{title} = $name;
+        # The leading part (up to the first " - ") doubles as the artist;
+        # some sites (theatrologia) put the artist only in <title>
+        if ($name =~ /^(.+?)\s+-\s+/) {
             $meta{artist} = $1;
         }
-        elsif ($title_text && $title_text =~ s/^(.+?)\s+-\s+//) {
+        elsif ($title_text && $title_text =~ /^(.+?)\s+-\s+/) {
             $meta{artist} = $1;
         }
         else {
             $meta{artist} = _siteName($site);
         }
-        $meta{title} = $name;
     }
 
     return \%meta;
