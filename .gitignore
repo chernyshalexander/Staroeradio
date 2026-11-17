@@ -1,2 +1,7 @@
 # VS Code
 .vscode/
+
+# Reports and test scripts moved to docs/ and test/
+docs/
+test/
+test_results/
