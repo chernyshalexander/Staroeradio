@@ -196,13 +196,21 @@ sub _feedHandler {
         _parseChannels($cachedChannels, $menu);
     }
 
-    # add menu item "Search"
+    # add menu item "Search". Nested outline: a top-level type 'search' item
+    # makes Material Skin strip its image and disable the icon grid for the
+    # whole menu (same as Spotty/Deezer, which nest the search one level deep).
+    # 'html/images/search.png' is the standard LMS icon; in Material it also
+    # maps to the built-in 'search' glyph (icon-map matches */search.png).
     push @$menu, {
         name  => string('PLUGIN_STAROE_SEARCH'),
         id    => '1',
-        type  => 'search',
-        url   => \&_searchHandler,
-        image => 'plugins/Staroe/html/images/foundbroadcast2_svg.png',
+        type  => 'outline',
+        image => 'html/images/search.png',
+        items => [ {
+            name  => string('PLUGIN_STAROE_SEARCH'),
+            type  => 'search',
+            url   => \&_searchHandler,
+        } ],
     };
 
     $callback->({
